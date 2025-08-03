@@ -10,16 +10,16 @@
       "default": "./dist/index.js"
     },
     "./middleware": {
-      "types": "./dist/middleware/e2ee.d.ts",
-      "default": "./dist/middleware/e2ee.js"
+      "types": "./dist/middleware/index.d.ts",
+      "default": "./dist/middleware/index.js"
     },
     "./client": {
-      "types": "./dist/client/e2ee-client.d.ts",
-      "default": "./dist/client/e2ee-client.js"
+      "types": "./dist/client/index.d.ts",
+      "default": "./dist/client/index.js"
     },
     "./interceptor": {
-      "types": "./dist/interceptors/e2ee.interceptor.d.ts",
-      "default": "./dist/interceptors/e2ee.interceptor.js"
+      "types": "./dist/interceptors/index.d.ts",
+      "default": "./dist/interceptors/index.js"
     }
   },
   "scripts": {

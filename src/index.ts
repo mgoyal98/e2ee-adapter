@@ -24,3 +24,13 @@ export type {
   E2EEClientRequest,
   E2EEClientResponse,
 } from './types';
+
+// Middleware
+export {
+  createE2EEMiddleware,
+} from './middleware/e2ee';
+
+// Client
+export {
+  E2EEClient,
+} from './client/e2ee-client';
