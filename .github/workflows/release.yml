@@ -10,7 +10,7 @@ permissions:
   contents: write
   issues: write
   pull-requests: write
-  
+
 jobs:
   release:
     name: Release package
@@ -28,6 +28,9 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Build
+        run: npm run build
 
       - name: Run semantic-release
         env:
