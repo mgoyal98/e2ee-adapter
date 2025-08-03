@@ -6,6 +6,7 @@ export { E2EEClient } from './client/e2ee-client';
 // Crypto utilities
 export { 
   generateKeyPair, 
+  generateMultipleKeyPairs,
   encrypt, 
   decrypt, 
   encryptAES, 
@@ -23,6 +24,7 @@ export type {
   EncryptedData,
   DecryptedData,
   KeyPair,
+  KeyStore,
   E2EEClientConfig,
   E2EEClientRequest,
   E2EEClientResponse

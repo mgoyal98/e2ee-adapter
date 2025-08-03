@@ -21,12 +21,14 @@ export class E2EEInterceptor implements NestInterceptor {
   private readonly config: Required<E2EEConfig>;
 
   constructor(private readonly options: E2EEInterceptorOptions) {
+    // Validate that we have keys
+    if (!options.config.keys || Object.keys(options.config.keys).length === 0) {
+      throw new Error('At least one key pair must be provided in config.keys');
+    }
+
     // Merge configuration with defaults
     this.config = {
-      privateKey: options.config.privateKey,
-      publicKey: options.config.publicKey,
-      algorithm: options.config.algorithm || 'RSA-OAEP',
-      encoding: options.config.encoding || 'base64',
+      keys: options.config.keys,
       customKeyHeader: options.config.customKeyHeader || 'x-custom-key',
       customIVHeader: options.config.customIVHeader || 'x-custom-iv',
       keyIdHeader: options.config.keyIdHeader || 'x-key-id',
@@ -55,6 +57,19 @@ export class E2EEInterceptor implements NestInterceptor {
   }
 
   /**
+   * Get key pair for a specific keyId
+   */
+  private getKeyPair(keyId: string): { privateKey: string; publicKey: string } {
+    const keyPair = this.config.keys[keyId];
+    
+    if (!keyPair) {
+      throw new HttpException(`Key pair not found for keyId: ${keyId}`, HttpStatus.BAD_REQUEST);
+    }
+    
+    return keyPair;
+  }
+
+  /**
    * Decrypt request using headers
    */
   private async decryptRequest(req: Request): Promise<DecryptedData> {
@@ -62,10 +77,14 @@ export class E2EEInterceptor implements NestInterceptor {
       // Extract headers
       const encryptedKeyHeader = req.headers[this.config.customKeyHeader.toLowerCase()] as string;
       const ivHeader = req.headers[this.config.customIVHeader.toLowerCase()] as string;
-      // const keyIdHeader = req.headers[this.config.keyIdHeader.toLowerCase()] as string;
+      const keyIdHeader = req.headers[this.config.keyIdHeader.toLowerCase()] as string;
 
       if (!encryptedKeyHeader || !ivHeader) {
         throw new HttpException('Missing encryption headers', HttpStatus.BAD_REQUEST);
+      }
+
+      if (!keyIdHeader) {
+        throw new HttpException('Missing keyId header', HttpStatus.BAD_REQUEST);
       }
 
       // Get encrypted data from request body
@@ -73,12 +92,15 @@ export class E2EEInterceptor implements NestInterceptor {
         throw new HttpException('Missing encrypted data in request body', HttpStatus.BAD_REQUEST);
       }
 
+      // Get the appropriate key pair based on keyId
+      const keyPair = this.getKeyPair(keyIdHeader);
+
       // Decrypt the data
       const decryptionResult = await decrypt(
         req.body,
         encryptedKeyHeader,
         ivHeader,
-        this.config.privateKey
+        keyPair.privateKey
       );
 
       const decryptedData: DecryptedData = {

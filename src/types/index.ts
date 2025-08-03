@@ -1,14 +1,20 @@
 // import { Request, Response, NextFunction } from 'express';
 
-export interface E2EEConfig {
-  /** RSA private key for decryption */
-  privateKey: string;
-  /** RSA public key for encryption */
+export interface KeyPair {
+  /** RSA public key in PEM format */
   publicKey: string;
-  /** Encryption algorithm (default: RSA-OAEP) */
-  algorithm?: string;
-  /** Encoding format (default: base64) */
-  encoding?: string;
+  /** RSA private key in PEM format */
+  privateKey: string;
+}
+
+export interface KeyStore {
+  /** Mapping of keyId to key pair */
+  [keyId: string]: KeyPair;
+}
+
+export interface E2EEConfig {
+  /** Multiple keys store for multi-domain support */
+  keys: KeyStore;
   /** Custom key header name (default: x-custom-key) */
   customKeyHeader?: string;
   /** Custom IV header name (default: x-custom-iv) */
@@ -65,20 +71,11 @@ export interface E2EEError extends Error {
 
 export type E2EEMiddleware = (req: any, res: any, next: any) => void;
 
-export interface KeyPair {
-  /** RSA public key in PEM format */
-  publicKey: string;
-  /** RSA private key in PEM format */
-  privateKey: string;
-}
-
 export interface E2EEClientConfig {
-  /** Server's public key for encryption */
-  serverPublicKey: string;
+  /** Multiple server keys for multi-domain support */
+  serverKeys: { [keyId: string]: string };
   /** Key ID for versioning */
   keyId?: string;
-  /** Algorithm for encryption (default: RSA-OAEP) */
-  algorithm?: string;
 }
 
 export interface E2EEClientRequest {

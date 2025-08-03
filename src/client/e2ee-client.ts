@@ -2,12 +2,10 @@ import { encrypt, decryptAES } from '../utils/crypto';
 import { KeyPair } from '../types';
 
 export interface E2EEClientConfig {
-  /** Server's public key for encryption */
-  serverPublicKey: string;
+  /** Multiple server keys for multi-domain support */
+  serverKeys: { [keyId: string]: string };
   /** Key ID for versioning */
   keyId?: string;
-  /** Algorithm for encryption (default: RSA-OAEP) */
-  algorithm?: string;
 }
 
 export interface E2EEClientRequest {
@@ -15,6 +13,7 @@ export interface E2EEClientRequest {
   method: string;
   data?: any;
   headers?: Record<string, string>;
+  keyId: string; // Required key ID to use for this request
 }
 
 export interface E2EEClientResponse {
@@ -25,27 +24,44 @@ export interface E2EEClientResponse {
 }
 
 export class E2EEClient {
-  private readonly config: Required<E2EEClientConfig>;
+  private readonly serverKeys: { [keyId: string]: string };
 
   constructor(config: E2EEClientConfig) {
-    this.config = {
-      serverPublicKey: config.serverPublicKey,
-      keyId: config.keyId || 'v1',
-      algorithm: config.algorithm || 'RSA-OAEP',
-    };
+    // Validate configuration
+    if (!config.serverKeys || Object.keys(config.serverKeys).length === 0) {
+      throw new Error('serverKeys must be provided with at least one key');
+    }
+
+    // Build server keys map
+    this.serverKeys = { ...config.serverKeys };
+  }
+
+  /**
+   * Get server public key for a specific keyId
+   */
+  private getServerPublicKey(keyId: string): string {
+    const publicKey = this.serverKeys[keyId];
+    
+    if (!publicKey) {
+      throw new Error(`Server public key not found for keyId: ${keyId}`);
+    }
+    
+    return publicKey;
   }
 
   /**
    * Encrypt request data using hybrid encryption (AES-CBC + RSA)
    * @param data - Data to encrypt
+   * @param keyId - Key ID to use for encryption
    * @returns Promise<{ encryptedData: string, encryptedKey: string, iv: string, originalAesKey: Buffer, originalIv: Buffer }>
    */
-  async encryptRequest(data: any): Promise<{ encryptedData: string, encryptedKey: string, iv: string, originalAesKey: Buffer, originalIv: Buffer }> {
+  async encryptRequest(data: any, keyId: string): Promise<{ encryptedData: string, encryptedKey: string, iv: string, originalAesKey: Buffer, originalIv: Buffer }> {
     try {
       const dataString = JSON.stringify(data);
+      const serverPublicKey = this.getServerPublicKey(keyId);
 
       // Encrypt the data using hybrid encryption
-      const encryptionResult = await encrypt(dataString, this.config.serverPublicKey);
+      const encryptionResult = await encrypt(dataString, serverPublicKey);
 
       return {
         encryptedData: encryptionResult.encryptedData,
@@ -82,7 +98,12 @@ export class E2EEClient {
    */
   async request(requestConfig: E2EEClientRequest): Promise<E2EEClientResponse> {
     try {
-      const { url, method, data, headers = {} } = requestConfig;
+      const { url, method, data, headers = {}, keyId } = requestConfig;
+
+      // Validate keyId is provided
+      if (!keyId) {
+        throw new Error('keyId is required for encrypted requests');
+      }
 
       // Prepare request headers
       const requestHeaders: Record<string, string> = {
@@ -96,12 +117,12 @@ export class E2EEClient {
 
       // Encrypt request data if provided
       if (data) {
-        const { encryptedData, encryptedKey, iv: ivString, originalAesKey, originalIv } = await this.encryptRequest(data);
+        const { encryptedData, encryptedKey, iv: ivString, originalAesKey, originalIv } = await this.encryptRequest(data, keyId);
         
         // Set encryption headers
         requestHeaders['x-custom-key'] = encryptedKey;
         requestHeaders['x-custom-iv'] = ivString;
-        requestHeaders['x-key-id'] = this.config.keyId;
+        requestHeaders['x-key-id'] = keyId;
         
         // Store AES key and IV for response decryption
         aesKey = originalAesKey;
@@ -150,6 +171,7 @@ export class E2EEClient {
         statusText: response.statusText
       };
     } catch (error) {
+      console.log(error)
       throw new Error(`Request failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }

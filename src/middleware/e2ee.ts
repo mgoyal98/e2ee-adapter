@@ -16,12 +16,14 @@ import { decrypt, encryptAES } from '../utils/crypto';
 export function createE2EEMiddleware(options: E2EEMiddlewareOptions): E2EEMiddleware {
   const { config, onError, onDecrypt, onEncrypt } = options;
 
+  // Validate that we have keys
+  if (!config.keys || Object.keys(config.keys).length === 0) {
+    throw new Error('At least one key pair must be provided in config.keys');
+  }
+
   // Merge configuration with defaults
   const finalConfig: Required<E2EEConfig> = {
-    privateKey: config.privateKey,
-    publicKey: config.publicKey,
-    algorithm: config.algorithm || 'RSA-OAEP',
-    encoding: config.encoding || 'base64',
+    keys: config.keys,
     customKeyHeader: config.customKeyHeader || 'x-custom-key',
     customIVHeader: config.customIVHeader || 'x-custom-iv',
     keyIdHeader: config.keyIdHeader || 'x-key-id',
@@ -59,6 +61,19 @@ export function createE2EEMiddleware(options: E2EEMiddlewareOptions): E2EEMiddle
   }
 
   /**
+   * Get key pair for a specific keyId
+   */
+  function getKeyPair(keyId: string): { privateKey: string; publicKey: string } {
+    const keyPair = finalConfig.keys[keyId];
+    
+    if (!keyPair) {
+      throw createError(`Key pair not found for keyId: ${keyId}`, 'INVALID_KEY_ID', 400);
+    }
+    
+    return keyPair;
+  }
+
+  /**
    * Decrypt request using headers
    */
   async function decryptRequest(req: Request): Promise<DecryptedData> {
@@ -66,10 +81,14 @@ export function createE2EEMiddleware(options: E2EEMiddlewareOptions): E2EEMiddle
       // Extract headers
       const encryptedKeyHeader = req.headers[finalConfig.customKeyHeader.toLowerCase()] as string;
       const ivHeader = req.headers[finalConfig.customIVHeader.toLowerCase()] as string;
-      // const keyIdHeader = req.headers[finalConfig.keyIdHeader.toLowerCase()] as string;
+      const keyIdHeader = req.headers[finalConfig.keyIdHeader.toLowerCase()] as string;
 
       if (!encryptedKeyHeader || !ivHeader) {
         throw createError('Missing encryption headers', 'MISSING_ENCRYPTION_HEADERS');
+      }
+
+      if (!keyIdHeader) {
+        throw createError('Missing keyId header', 'MISSING_KEY_ID_HEADER');
       }
 
       // Get encrypted data from request body
@@ -77,12 +96,15 @@ export function createE2EEMiddleware(options: E2EEMiddlewareOptions): E2EEMiddle
         throw createError('Missing encrypted data in request body', 'MISSING_ENCRYPTED_DATA');
       }
 
+      // Get the appropriate key pair based on keyId
+      const keyPair = getKeyPair(keyIdHeader);
+
       // Decrypt the data
       const decryptionResult = await decrypt(
         req.body,
         encryptedKeyHeader,
         ivHeader,
-        finalConfig.privateKey
+        keyPair.privateKey
       );
 
       const decryptedData: DecryptedData = {

@@ -4,6 +4,24 @@
   "description": "End-to-End Encryption middleware for Express.js and NestJS using hybrid AES-CBC + RSA encryption with secure key exchange",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./middleware": {
+      "types": "./dist/middleware/e2ee.d.ts",
+      "default": "./dist/middleware/e2ee.js"
+    },
+    "./client": {
+      "types": "./dist/client/e2ee-client.d.ts",
+      "default": "./dist/client/e2ee-client.js"
+    },
+    "./interceptor": {
+      "types": "./dist/interceptors/e2ee.interceptor.d.ts",
+      "default": "./dist/interceptors/e2ee.interceptor.js"
+    }
+  },
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
@@ -47,13 +65,10 @@
     "ts-jest": "^29.1.0",
     "typescript": "^5.0.0"
   },
-  "dependencies": {
-    "express": "^4.18.0",
+  "peerDependencies": {
+    "express": "^4.17.0",
     "@nestjs/common": "^10.0.0",
     "rxjs": "^7.8.0"
-  },
-  "peerDependencies": {
-    "express": "^4.17.0"
   },
   "files": [
     "dist/**/*",

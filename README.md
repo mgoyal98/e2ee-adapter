@@ -22,8 +22,16 @@ A TypeScript package providing End-to-End Encryption (E2EE) middleware for Expre
 
 ## 📦 Installation
 
+### For Express.js Applications
+
 ```bash
-npm install e2ee-middleware
+npm install e2ee-adapter express
+```
+
+### For NestJS Applications
+
+```bash
+npm install e2ee-adapter @nestjs/common rxjs
 ```
 
 ## 🏗️ Architecture
@@ -93,23 +101,36 @@ The middleware implements a secure hybrid encryption flow:
 
 ## 🛠️ Usage
 
+### Module Paths
+
+The package provides specific module paths for middleware, client, and interceptor:
+
+```typescript
+// Main exports (everything)
+import { createE2EEMiddleware, E2EEClient, E2EEInterceptor, generateMultipleKeyPairs } from 'e2ee-adapter';
+
+// Specific modules (optional)
+import { createE2EEMiddleware } from 'e2ee-adapter/middleware';
+import { E2EEClient } from 'e2ee-adapter/client';
+import { E2EEInterceptor } from 'e2ee-adapter/interceptor';
+```
+
 ### Express.js Setup
 
 ```typescript
 import express from 'express';
-import { createE2EEMiddleware, generateKeyPair } from 'e2ee-middleware';
+import { generateMultipleKeyPairs } from 'e2ee-adapter';
+import { createE2EEMiddleware } from 'e2ee-adapter/middleware';
 
 const app = express();
 
-// Generate RSA key pair
-const { publicKey, privateKey } = await generateKeyPair(2048);
+// Generate multiple RSA key pairs
+const keys = await generateMultipleKeyPairs(['domain1', 'domain2', 'domain3']);
 
 // Create E2EE middleware
 const e2eeMiddleware = createE2EEMiddleware({
   config: {
-    privateKey,
-    publicKey,
-    algorithm: 'RSA-OAEP',
+    keys,
     enableRequestDecryption: true,
     enableResponseEncryption: true,
     excludePaths: ['/health', '/keys', '/e2ee.json'],
@@ -132,9 +153,11 @@ app.use(e2eeMiddleware);
 // Add server configuration endpoint
 app.get('/e2ee.json', (req, res) => {
   res.json({
-    key: publicKey,
-    key_id: 'v1',
-    algorithm: 'RSA-OAEP',
+    keys: {
+      domain1: keys.domain1.publicKey,
+      domain2: keys.domain2.publicKey,
+      domain3: keys.domain3.publicKey
+    },
     keySize: 2048
   });
 });
@@ -157,15 +180,24 @@ app.post('/api/users', (req, res) => {
 
 ```typescript
 import { Injectable, NestInterceptor, ExecutionContext, CallHandler } from '@nestjs/common';
-import { E2EEInterceptor } from 'e2ee-middleware';
+import { E2EEInterceptor } from 'e2ee-adapter/interceptor';
 
 @Injectable()
 export class E2EEInterceptor extends E2EEInterceptor {
   constructor() {
     super({
       config: {
-        privateKey: process.env.E2EE_PRIVATE_KEY,
-        publicKey: process.env.E2EE_PUBLIC_KEY,
+        keys: {
+          domain1: {
+            privateKey: process.env.E2EE_DOMAIN1_PRIVATE_KEY,
+            publicKey: process.env.E2EE_DOMAIN1_PUBLIC_KEY
+          },
+          domain2: {
+            privateKey: process.env.E2EE_DOMAIN2_PRIVATE_KEY,
+            publicKey: process.env.E2EE_DOMAIN2_PUBLIC_KEY
+          }
+        },
+
         enableRequestDecryption: true,
         enableResponseEncryption: true
       }
@@ -188,12 +220,14 @@ export class UsersController {
 ### Client Usage
 
 ```typescript
-import { E2EEClient } from 'e2ee-middleware';
+import { E2EEClient } from 'e2ee-adapter/client';
 
-// Create client with server's public key
+// Create client with multiple server keys
 const client = new E2EEClient({
-  serverPublicKey: '-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----',
-  keyId: 'v1'
+  serverKeys: {
+    domain1: '-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----',
+    domain2: '-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----'
+  }
 });
 
 // Make encrypted requests
@@ -203,7 +237,8 @@ const response = await client.request({
   data: {
     name: 'John Doe',
     email: 'john@example.com'
-  }
+  },
+  keyId: 'domain1' // Required: specify which key to use
 });
 
 console.log(response.data); // Automatically decrypted response
@@ -214,13 +249,21 @@ console.log(response.data); // Automatically decrypted response
 ### Configuration Options
 
 ```typescript
-interface E2EEConfig {
-  /** RSA private key for decryption */
-  privateKey: string;
-  /** RSA public key for encryption */
+interface KeyPair {
+  /** RSA public key in PEM format */
   publicKey: string;
-  /** Encryption algorithm (default: RSA-OAEP) */
-  algorithm?: string;
+  /** RSA private key in PEM format */
+  privateKey: string;
+}
+
+interface KeyStore {
+  /** Mapping of keyId to key pair */
+  [keyId: string]: KeyPair;
+}
+
+interface E2EEConfig {
+  /** Multiple keys store for multi-domain support */
+  keys: KeyStore;
   /** Custom key header name (default: x-custom-key) */
   customKeyHeader?: string;
   /** Custom IV header name (default: x-custom-iv) */
@@ -242,12 +285,10 @@ interface E2EEConfig {
 
 ```typescript
 interface E2EEClientConfig {
-  /** Server's public key for encryption */
-  serverPublicKey: string;
+  /** Multiple server keys for multi-domain support */
+  serverKeys: { [keyId: string]: string };
   /** Key ID for versioning */
   keyId?: string;
-  /** Algorithm for encryption (default: RSA-OAEP) */
-  algorithm?: string;
 }
 ```
 
@@ -261,25 +302,38 @@ See `examples/express-server/server.js` for a complete working example.
 
 See `examples/client-example/client.js` for a complete working example.
 
+### Vanilla JavaScript Client Example
+
+See `examples/vanilla-js-client/` for a browser-based vanilla JavaScript client with interactive UI.
+
+
+
 ## 🚀 Quick Start
 
 1. **Install the package:**
    ```bash
-   npm install e2ee-middleware
+   # For Express.js
+   npm install e2ee-adapter express
+   
+   # For NestJS
+   npm install e2ee-adapter @nestjs/common rxjs
    ```
 
-2. **Generate RSA keys:**
+2. **Generate multiple key pairs:**
    ```typescript
-   import { generateKeyPair } from 'e2ee-middleware';
-   const { publicKey, privateKey } = await generateKeyPair(2048);
+   import { generateMultipleKeyPairs } from 'e2ee-adapter';
+   
+   const keys = await generateMultipleKeyPairs(['domain1', 'domain2', 'domain3']);
    ```
 
 3. **Set up Express middleware:**
    ```typescript
-   import { createE2EEMiddleware } from 'e2ee-middleware';
+   import { createE2EEMiddleware } from 'e2ee-adapter/middleware';
    
    const e2eeMiddleware = createE2EEMiddleware({
-     config: { privateKey, publicKey }
+     config: { 
+       keys
+     }
    });
    
    app.use(e2eeMiddleware);
@@ -287,10 +341,14 @@ See `examples/client-example/client.js` for a complete working example.
 
 4. **Create client:**
    ```typescript
-   import { E2EEClient } from 'e2ee-middleware';
+   import { E2EEClient } from 'e2ee-adapter/client';
    
    const client = new E2EEClient({
-     serverPublicKey: publicKey
+     serverKeys: {
+       domain1: keys.domain1.publicKey,
+       domain2: keys.domain2.publicKey,
+       domain3: keys.domain3.publicKey
+     }
    });
    ```
 
@@ -299,9 +357,51 @@ See `examples/client-example/client.js` for a complete working example.
    const response = await client.request({
      url: 'http://localhost:3000/api/users',
      method: 'POST',
-     data: { name: 'John Doe' }
+     data: { name: 'John Doe' },
+     keyId: 'domain1' // Required: specify which key to use
    });
-   ```
+
+
+## 🌐 Multi-Domain Support
+
+The library supports multiple encryption keys for different domains or tenants sharing the same server infrastructure. This is useful for:
+
+- **Multi-tenant applications** where each tenant has their own encryption keys
+- **Domain-specific encryption** where different domains use different keys
+- **Key rotation** where new keys can be added while old ones remain valid
+- **Isolation** ensuring data encrypted with one key cannot be decrypted with another
+- **Explicit key selection** requiring users to specify which key to use for each request
+
+### How it works:
+
+1. **Server Configuration**: Configure multiple key pairs with unique keyIds
+2. **Client Configuration**: Store public keys for all domains you need to communicate with
+3. **Request-Level Key Selection**: Specify which keyId to use for each request (required)
+4. **Automatic Key Resolution**: Server automatically selects the correct private key based on the keyId header
+
+### Example Use Case:
+
+```typescript
+// Server setup for multiple domains
+const keys = await generateMultipleKeyPairs(['tenant1', 'tenant2', 'tenant3']);
+
+const middleware = createE2EEMiddleware({
+  config: { keys }
+});
+
+// Client setup for multiple domains
+const client = new E2EEClient({
+  serverKeys: {
+    tenant1: keys.tenant1.publicKey,
+    tenant2: keys.tenant2.publicKey,
+    tenant3: keys.tenant3.publicKey
+  }
+});
+
+// Use different keys for different requests (keyId is required)
+await client.request({ url: '/api/data', method: 'POST', data: data1, keyId: 'tenant1' });
+await client.request({ url: '/api/data', method: 'POST', data: data2, keyId: 'tenant2' });
+```
 
 ## 🔒 Security Considerations
 
@@ -310,6 +410,7 @@ See `examples/client-example/client.js` for a complete working example.
 - **HTTPS**: Always use HTTPS in production to protect against MITM attacks
 - **Key Size**: Use 2048-bit RSA keys minimum for production
 - **Algorithm**: The middleware uses RSA-OAEP with SHA-256 for optimal security
+- **Key Isolation**: Ensure proper key isolation between different domains/tenants
 
 ## 📝 License
 
