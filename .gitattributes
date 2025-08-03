@@ -1,0 +1,115 @@
+# Set default behavior to automatically normalize line endings
+* text=auto
+
+# Explicitly declare text files you want to always be normalized and converted
+# to native line endings on checkout
+*.js text
+*.ts text
+*.jsx text
+*.tsx text
+*.json text
+*.md text
+*.yml text
+*.yaml text
+*.css text
+*.scss text
+*.html text
+*.xml text
+*.txt text
+*.sql text
+*.sh text
+*.bat text
+*.cmd text
+*.ps1 text
+
+# Declare files that will always have CRLF line endings on checkout
+*.sln text eol=crlf
+
+# Denote all files that are truly binary and should not be modified
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.mov binary
+*.mp4 binary
+*.mp3 binary
+*.flv binary
+*.fla binary
+*.swf binary
+*.gz binary
+*.zip binary
+*.7z binary
+*.ttf binary
+*.eot binary
+*.woff binary
+*.woff2 binary
+*.pyc binary
+*.pdf binary
+
+# Package files
+*.tgz binary
+*.tar.gz binary
+
+# Certificate files
+*.pem text
+*.key text
+*.crt text
+*.cer text
+*.der text
+*.p12 binary
+*.pfx binary
+
+# Configuration files that should be text
+.env* text
+.npmrc text
+.yarnrc text
+.yarnrc.yml text
+.editorconfig text
+.gitignore text
+.npmignore text
+.gitattributes text
+
+# Documentation
+*.md text diff=markdown
+*.rst text
+*.txt text
+
+# Scripts
+*.sh text eol=lf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# TypeScript
+*.ts text
+*.tsx text
+*.d.ts text
+
+# JavaScript
+*.js text
+*.jsx text
+*.mjs text
+*.cjs text
+
+# JSON
+*.json text
+
+# YAML
+*.yml text
+*.yaml text
+
+# CSS and related
+*.css text
+*.scss text
+*.sass text
+*.less text
+
+# HTML
+*.html text
+*.htm text
+*.xml text
+*.svg text
+
+# Logs (should be text but might have different line endings)
+*.log text eol=lf 
