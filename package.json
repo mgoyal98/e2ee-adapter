@@ -1,5 +1,5 @@
 {
-  "name": "e2ee-middleware",
+  "name": "e2ee-adapter",
   "version": "0.0.1",
   "description": "End-to-End Encryption middleware for Express.js and NestJS using hybrid AES-CBC + RSA encryption with secure key exchange",
   "main": "dist/index.js",
@@ -62,7 +62,7 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/yourusername/e2ee-middleware.git"
+    "url": "git+https://github.com/mgoyal98/e2ee-adapter.git"
   },
   "engines": {
     "node": ">=16.0.0"

@@ -1,4 +1,4 @@
-# E2EE Middleware
+# E2EE Adapter
 
 A TypeScript package providing End-to-End Encryption (E2EE) middleware for Express.js and NestJS applications using hybrid encryption (AES-CBC + RSA).
 
