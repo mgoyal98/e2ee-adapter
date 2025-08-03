@@ -1,3 +1,9 @@
+## [1.0.1](https://github.com/mgoyal98/e2ee-adapter/compare/v1.0.0...v1.0.1) (2025-08-03)
+
+### Bug Fixes
+
+* separate exports ([dc3441b](https://github.com/mgoyal98/e2ee-adapter/commit/dc3441b618957784721378ed46ae2c160cc071f6))
+
 ## [1.0.0](https://github.com/mgoyal98/e2ee-adapter/compare/v0.1.2...v1.0.0) (2025-08-03)
 
 ### ⚠ BREAKING CHANGES
