@@ -1,3 +1,9 @@
+## [0.1.1](https://github.com/mgoyal98/e2ee-adapter/compare/v0.1.0...v0.1.1) (2025-08-03)
+
+### Bug Fixes
+
+* dist folder in github release ([a139935](https://github.com/mgoyal98/e2ee-adapter/commit/a1399353d81b7007c768ab1fd96305c9f26562d4))
+
 ## [0.1.0](https://github.com/mgoyal98/e2ee-adapter/compare/v0.0.1...v0.1.0) (2025-08-03)
 
 ### Features
