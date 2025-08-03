@@ -134,7 +134,8 @@ const e2eeMiddleware = createE2EEMiddleware({
     enableRequestDecryption: true,
     enableResponseEncryption: true,
     excludePaths: ['/health', '/keys', '/e2ee.json'],
-    excludeMethods: ['GET', 'HEAD', 'OPTIONS']
+    excludeMethods: ['GET', 'HEAD', 'OPTIONS'],
+    enforced: false // Allow both encrypted and non-encrypted requests
   },
   onError: (error, req, res) => {
     console.error('E2EE Error:', error.message);
@@ -199,7 +200,8 @@ export class E2EEInterceptor extends E2EEInterceptor {
         },
 
         enableRequestDecryption: true,
-        enableResponseEncryption: true
+        enableResponseEncryption: true,
+        enforced: true // Strictly require encryption for all requests
       }
     });
   }
@@ -278,6 +280,8 @@ interface E2EEConfig {
   excludePaths?: string[];
   /** HTTP methods to exclude from encryption */
   excludeMethods?: string[];
+  /** If true, strictly enforce encryption for all requests. If false, only check for encryption after identifying headers (default: false) */
+  enforced?: boolean;
 }
 ```
 
@@ -411,6 +415,49 @@ await client.request({ url: '/api/data', method: 'POST', data: data2, keyId: 'te
 - **Key Size**: Use 2048-bit RSA keys minimum for production
 - **Algorithm**: The middleware uses RSA-OAEP with SHA-256 for optimal security
 - **Key Isolation**: Ensure proper key isolation between different domains/tenants
+
+## 🛡️ Enforcement Mode
+
+The library supports two enforcement modes to control how encryption is handled:
+
+### Non-Enforced Mode (Default: `enforced: false`)
+- Only processes requests that include encryption headers
+- Allows both encrypted and non-encrypted requests to coexist
+- Useful for gradual migration or mixed environments
+- Requests without encryption headers are passed through unchanged
+
+### Enforced Mode (`enforced: true`)
+- Strictly requires all requests to include encryption headers
+- Rejects requests without proper encryption headers with a 400 error
+- Ensures complete end-to-end encryption compliance
+- Recommended for production environments with strict security requirements
+
+### Example Configuration:
+
+```typescript
+// Non-enforced mode (default) - allows mixed requests
+const middleware = createE2EEMiddleware({
+  config: {
+    keys,
+    enforced: false // or omit this line
+  }
+});
+
+// Enforced mode - requires all requests to be encrypted
+const middleware = createE2EEMiddleware({
+  config: {
+    keys,
+    enforced: true
+  }
+});
+```
+
+### Use Cases:
+
+- **Development/Testing**: Use non-enforced mode to test both encrypted and non-encrypted endpoints
+- **Gradual Migration**: Start with non-enforced mode and gradually migrate clients
+- **Production**: Use enforced mode to ensure all traffic is encrypted
+- **Mixed Environments**: Use non-enforced mode when some clients cannot support encryption
 
 ## 📝 License
 

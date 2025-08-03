@@ -30,7 +30,8 @@ export function createE2EEMiddleware(options: E2EEMiddlewareOptions): E2EEMiddle
     enableRequestDecryption: config.enableRequestDecryption !== false,
     enableResponseEncryption: config.enableResponseEncryption !== false,
     excludePaths: config.excludePaths || ['/health', '/keys', '/e2ee.json'],
-    excludeMethods: config.excludeMethods || ['GET', 'HEAD', 'OPTIONS']
+    excludeMethods: config.excludeMethods || ['GET', 'HEAD', 'OPTIONS'],
+    enforced: config.enforced || false
   };
 
   /**
@@ -48,6 +49,17 @@ export function createE2EEMiddleware(options: E2EEMiddlewareOptions): E2EEMiddle
     }
 
     return true;
+  }
+
+  /**
+   * Check if request has encryption headers
+   */
+  function hasEncryptionHeaders(req: Request): boolean {
+    const encryptedKeyHeader = req.headers[finalConfig.customKeyHeader.toLowerCase()] as string;
+    const ivHeader = req.headers[finalConfig.customIVHeader.toLowerCase()] as string;
+    const keyIdHeader = req.headers[finalConfig.keyIdHeader.toLowerCase()] as string;
+    
+    return !!(encryptedKeyHeader && ivHeader && keyIdHeader);
   }
 
   /**
@@ -150,6 +162,23 @@ export function createE2EEMiddleware(options: E2EEMiddlewareOptions): E2EEMiddle
       // Check if request should be processed
       if (!shouldProcessRequest(req)) {
         return next();
+      }
+
+      // Check enforcement mode
+      if (finalConfig.enforced) {
+        // In enforced mode, all requests must be encrypted
+        if (!hasEncryptionHeaders(req)) {
+          throw createError(
+            'Encryption is enforced. All requests must include encryption headers.',
+            'ENCRYPTION_ENFORCED',
+            400
+          );
+        }
+      } else {
+        // In non-enforced mode, only process requests that have encryption headers
+        if (!hasEncryptionHeaders(req)) {
+          return next();
+        }
       }
 
       // Decrypt request if enabled

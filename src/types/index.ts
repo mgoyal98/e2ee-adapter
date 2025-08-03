@@ -29,6 +29,8 @@ export interface E2EEConfig {
   excludePaths?: string[];
   /** HTTP methods to exclude from encryption (default: ['GET', 'HEAD', 'OPTIONS']) */
   excludeMethods?: string[];
+  /** If true, strictly enforce encryption for all requests. If false, only check for encryption after identifying headers (default: false) */
+  enforced?: boolean;
 }
 
 export interface EncryptedData {

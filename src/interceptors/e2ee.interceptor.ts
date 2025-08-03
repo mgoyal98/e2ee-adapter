@@ -35,7 +35,8 @@ export class E2EEInterceptor implements NestInterceptor {
       enableRequestDecryption: options.config.enableRequestDecryption !== false,
       enableResponseEncryption: options.config.enableResponseEncryption !== false,
       excludePaths: options.config.excludePaths || ['/health', '/keys', '/e2ee.json'],
-      excludeMethods: options.config.excludeMethods || ['GET', 'HEAD', 'OPTIONS']
+      excludeMethods: options.config.excludeMethods || ['GET', 'HEAD', 'OPTIONS'],
+      enforced: options.config.enforced || false
     };
   }
 
@@ -54,6 +55,17 @@ export class E2EEInterceptor implements NestInterceptor {
     }
 
     return true;
+  }
+
+  /**
+   * Check if request has encryption headers
+   */
+  private hasEncryptionHeaders(req: Request): boolean {
+    const encryptedKeyHeader = req.headers[this.config.customKeyHeader.toLowerCase()] as string;
+    const ivHeader = req.headers[this.config.customIVHeader.toLowerCase()] as string;
+    const keyIdHeader = req.headers[this.config.keyIdHeader.toLowerCase()] as string;
+    
+    return !!(encryptedKeyHeader && ivHeader && keyIdHeader);
   }
 
   /**
@@ -145,6 +157,22 @@ export class E2EEInterceptor implements NestInterceptor {
     // Check if request should be processed
     if (!this.shouldProcessRequest(request)) {
       return next.handle();
+    }
+
+    // Check enforcement mode
+    if (this.config.enforced) {
+      // In enforced mode, all requests must be encrypted
+      if (!this.hasEncryptionHeaders(request)) {
+        return throwError(() => new HttpException(
+          'Encryption is enforced. All requests must include encryption headers.',
+          HttpStatus.BAD_REQUEST
+        ));
+      }
+    } else {
+      // In non-enforced mode, only process requests that have encryption headers
+      if (!this.hasEncryptionHeaders(request)) {
+        return next.handle();
+      }
     }
 
     // Handle both request decryption and response encryption

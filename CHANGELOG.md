@@ -1,3 +1,14 @@
+## [Unreleased]
+
+### Features
+
+* Add enforcement mode support for strict encryption requirements
+  * New `enforced` option in E2EEConfig (default: false)
+  * When `enforced: true`, strictly requires encryption headers for all requests
+  * When `enforced: false`, only processes requests that have encryption headers
+  * Supports both Express middleware and NestJS interceptor
+  * Useful for gradual migration and production environments
+
 ## [0.1.1](https://github.com/mgoyal98/e2ee-adapter/compare/v0.1.0...v0.1.1) (2025-08-03)
 
 ### Bug Fixes
