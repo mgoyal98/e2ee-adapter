@@ -25,6 +25,11 @@ export type {
   E2EEClientResponse,
 } from './types';
 
+// Interceptors
+export {
+  E2EEInterceptor,
+} from './interceptors/e2ee.interceptor';
+
 // Middleware
 export {
   createE2EEMiddleware,
