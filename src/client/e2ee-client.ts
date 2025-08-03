@@ -1,13 +1,13 @@
-import { encrypt, decrypt } from '../utils/crypto';
-import { EncryptedData, KeyPair } from '../types';
+import { encrypt, decryptAES } from '../utils/crypto';
+import { KeyPair } from '../types';
 
 export interface E2EEClientConfig {
   /** Server's public key for encryption */
   serverPublicKey: string;
+  /** Key ID for versioning */
+  keyId?: string;
   /** Algorithm for encryption (default: RSA-OAEP) */
   algorithm?: string;
-  /** Enable response verification (default: false - client doesn't verify server signatures) */
-  enableResponseVerification?: boolean;
 }
 
 export interface E2EEClientRequest {
@@ -30,35 +30,29 @@ export class E2EEClient {
   constructor(config: E2EEClientConfig) {
     this.config = {
       serverPublicKey: config.serverPublicKey,
+      keyId: config.keyId || 'v1',
       algorithm: config.algorithm || 'RSA-OAEP',
-      enableResponseVerification: config.enableResponseVerification || false
     };
   }
 
   /**
-   * Encrypt request data using server's public key
+   * Encrypt request data using hybrid encryption (AES-CBC + RSA)
    * @param data - Data to encrypt
-   * @returns Promise<{ encryptedData: string }>
+   * @returns Promise<{ encryptedData: string, encryptedKey: string, iv: string, originalAesKey: Buffer, originalIv: Buffer }>
    */
-  async encryptRequest(data: any): Promise<{ encryptedData: string }> {
+  async encryptRequest(data: any): Promise<{ encryptedData: string, encryptedKey: string, iv: string, originalAesKey: Buffer, originalIv: Buffer }> {
     try {
       const dataString = JSON.stringify(data);
-      const timestamp = Date.now();
 
-      // Encrypt the data using server's public key
-      const encryptionResult = await encrypt(
-        dataString,
-        this.config.serverPublicKey
-      );
-
-      const encryptedData: EncryptedData = {
-        data: encryptionResult.encryptedData,
-        timestamp,
-        nonce: encryptionResult.nonce
-      };
+      // Encrypt the data using hybrid encryption
+      const encryptionResult = await encrypt(dataString, this.config.serverPublicKey);
 
       return {
-        encryptedData: JSON.stringify(encryptedData)
+        encryptedData: encryptionResult.encryptedData,
+        encryptedKey: encryptionResult.aesKey.toString('base64'),
+        iv: encryptionResult.iv.toString('base64'),
+        originalAesKey: encryptionResult.originalAesKey, // Use the original AES key for response decryption
+        originalIv: encryptionResult.iv // Store the original IV for response decryption
       };
     } catch (error) {
       throw new Error(`Request encryption failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -66,34 +60,16 @@ export class E2EEClient {
   }
 
   /**
-   * Decrypt response data (if client has server's private key - not typical)
-   * Note: In typical client-server architecture, client doesn't decrypt server responses
-   * @param encryptedData - Encrypted data
-   * @param serverPrivateKey - Server's private key (not typically available to client)
+   * Decrypt response data using AES-CBC
+   * @param encryptedData - Encrypted data (base64)
+   * @param aesKey - AES key (Buffer)
+   * @param iv - Initialization vector (Buffer)
    * @returns Promise<any>
    */
-  async decryptResponse(encryptedData: string, serverPrivateKey?: string): Promise<any> {
-    if (!serverPrivateKey) {
-      throw new Error('Server private key required for decryption (not typically available to client)');
-    }
-
+  async decryptResponse(encryptedData: string, aesKey: Buffer, iv: Buffer): Promise<any> {
     try {
-      const encryptedObj = JSON.parse(encryptedData);
-      
-      // Verify timestamp to prevent replay attacks (5 minutes window)
-      const now = Date.now();
-      const timeDiff = Math.abs(now - encryptedObj.timestamp);
-      if (timeDiff > 5 * 60 * 1000) { // 5 minutes
-        throw new Error('Response timestamp is too old or too new');
-      }
-
-      // Decrypt the data using server's private key
-      const decryptionResult = await decrypt(
-        encryptedObj.data,
-        serverPrivateKey
-      );
-
-      return JSON.parse(decryptionResult.decryptedData);
+      const decryptedData = decryptAES(encryptedData, aesKey, iv);
+      return JSON.parse(decryptedData);
     } catch (error) {
       throw new Error(`Response decryption failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
@@ -114,13 +90,25 @@ export class E2EEClient {
         ...headers
       };
 
-      let requestBody: any = {};
+      let requestBody: string = '';
+      let aesKey: Buffer | undefined;
+      let iv: Buffer | undefined;
 
       // Encrypt request data if provided
       if (data) {
-        const { encryptedData } = await this.encryptRequest(data);
-        requestHeaders['x-encrypted-data'] = encryptedData;
-        requestBody = { encrypted: true, data: encryptedData };
+        const { encryptedData, encryptedKey, iv: ivString, originalAesKey, originalIv } = await this.encryptRequest(data);
+        
+        // Set encryption headers
+        requestHeaders['x-custom-key'] = encryptedKey;
+        requestHeaders['x-custom-iv'] = ivString;
+        requestHeaders['x-key-id'] = this.config.keyId;
+        
+        // Store AES key and IV for response decryption
+        aesKey = originalAesKey;
+        iv = originalIv;
+        
+        // Set encrypted data as request body
+        requestBody = encryptedData;
       }
 
       // Make the HTTP request
@@ -130,9 +118,9 @@ export class E2EEClient {
       };
       
       if (data) {
-        fetchOptions.body = JSON.stringify(requestBody);
+        fetchOptions.body = requestBody;
       }
-      
+
       const response = await fetch(url, fetchOptions);
 
       // Parse response headers
@@ -142,17 +130,17 @@ export class E2EEClient {
       });
 
       // Get response data
-      const responseData = await response.json() as any;
+      const responseData = await response.text();
 
-      // In typical client-server architecture, client doesn't decrypt server responses
-      // The server response is already in plain text or handled by the application layer
+      // Decrypt response if we have the AES key and IV
       let decryptedData = responseData;
-      
-      // Only decrypt if explicitly configured and server private key is available
-      if (responseData.encrypted && responseData.data && this.config.enableResponseVerification) {
-        console.warn('⚠️ Client-side response decryption is not typical in client-server architecture');
-        // In real scenarios, the server would send plain text responses
-        // or the application would handle encrypted responses differently
+      if (aesKey && iv && responseData) {
+        try {
+          decryptedData = await this.decryptResponse(responseData, aesKey, iv);
+        } catch (error) {
+          console.warn('Failed to decrypt response, returning raw data:', error);
+          decryptedData = responseData;
+        }
       }
 
       return {

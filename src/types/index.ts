@@ -1,88 +1,84 @@
-import { Request, Response, NextFunction } from 'express';
+// import { Request, Response, NextFunction } from 'express';
 
 export interface E2EEConfig {
   /** RSA private key for decryption */
   privateKey: string;
   /** RSA public key for encryption */
   publicKey: string;
-  /** Algorithm for encryption (default: RSA-OAEP) */
+  /** Encryption algorithm (default: RSA-OAEP) */
   algorithm?: string;
-  /** Encoding for keys (default: 'base64') */
-  encoding?: 'ascii' | 'utf8' | 'utf-8' | 'utf16le' | 'ucs2' | 'ucs-2' | 'base64' | 'base64url' | 'latin1' | 'binary' | 'hex';
-  /** Custom headers for encrypted data */
-  encryptedDataHeader?: string;
-  /** Custom headers for signature */
-  signatureHeader?: string;
+  /** Encoding format (default: base64) */
+  encoding?: string;
+  /** Custom key header name (default: x-custom-key) */
+  customKeyHeader?: string;
+  /** Custom IV header name (default: x-custom-iv) */
+  customIVHeader?: string;
+  /** Key ID header name (default: x-key-id) */
+  keyIdHeader?: string;
   /** Enable request decryption (default: true) */
   enableRequestDecryption?: boolean;
   /** Enable response encryption (default: true) */
   enableResponseEncryption?: boolean;
-  /** Enable signature verification (default: true) */
-  enableSignatureVerification?: boolean;
-  /** Enable response signing (default: true) */
-  enableResponseSigning?: boolean;
-  /** Paths to exclude from encryption/decryption */
+  /** Paths to exclude from encryption (default: ['/health', '/keys', '/e2ee.json']) */
   excludePaths?: string[];
-  /** Methods to exclude from encryption/decryption */
+  /** HTTP methods to exclude from encryption (default: ['GET', 'HEAD', 'OPTIONS']) */
   excludeMethods?: string[];
 }
 
 export interface EncryptedData {
+  /** Encrypted data (base64) */
   data: string;
-  signature?: string;
+  /** Timestamp for replay protection */
   timestamp: number;
+  /** Nonce for additional security */
   nonce: string;
 }
 
 export interface DecryptedData {
+  /** Decrypted data */
   data: any;
-  signature?: string;
+  /** Timestamp */
   timestamp: number;
+  /** Nonce */
   nonce: string;
+  /** AES key for response encryption */
+  aesKey?: Buffer;
+  /** Initialization vector for response encryption */
+  iv?: Buffer;
 }
 
 export interface E2EEMiddlewareOptions {
+  /** E2EE configuration */
   config: E2EEConfig;
-  onError?: (error: Error, req: Request, res: Response) => void;
-  onDecrypt?: (decryptedData: DecryptedData, req: Request) => void;
-  onEncrypt?: (encryptedData: EncryptedData, res: Response) => void;
+  /** Error callback */
+  onError?: (error: Error, req: any, res: any) => void;
+  /** Decryption callback */
+  onDecrypt?: (decryptedData: DecryptedData, req: any) => void;
+  /** Encryption callback */
+  onEncrypt?: (encryptedData: EncryptedData, res: any) => void;
 }
 
 export interface E2EEError extends Error {
   code: string;
-  statusCode: number;
+  statusCode?: number;
 }
 
-export type E2EEMiddleware = (
-  req: Request,
-  res: Response,
-  next: NextFunction
-) => void | Promise<void>;
+export type E2EEMiddleware = (req: any, res: any, next: any) => void;
 
 export interface KeyPair {
+  /** RSA public key in PEM format */
   publicKey: string;
+  /** RSA private key in PEM format */
   privateKey: string;
-}
-
-export interface EncryptionResult {
-  encryptedData: string;
-  signature?: string;
-  nonce: string;
-}
-
-export interface DecryptionResult {
-  decryptedData: any;
-  signature?: string;
-  nonce: string;
 }
 
 export interface E2EEClientConfig {
   /** Server's public key for encryption */
   serverPublicKey: string;
+  /** Key ID for versioning */
+  keyId?: string;
   /** Algorithm for encryption (default: RSA-OAEP) */
   algorithm?: string;
-  /** Enable response verification (default: false - client doesn't verify server signatures) */
-  enableResponseVerification?: boolean;
 }
 
 export interface E2EEClientRequest {
@@ -97,4 +93,4 @@ export interface E2EEClientResponse {
   headers: Record<string, string>;
   status: number;
   statusText: string;
-} 
+}

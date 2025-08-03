@@ -1,20 +1,13 @@
-import {
-  Injectable,
-  NestInterceptor,
-  ExecutionContext,
-  CallHandler,
-  HttpException,
-  HttpStatus
-} from '@nestjs/common';
+import { Injectable, NestInterceptor, ExecutionContext, CallHandler, HttpException, HttpStatus } from '@nestjs/common';
 import { Observable, throwError } from 'rxjs';
 import { map, catchError } from 'rxjs/operators';
 import { Request, Response } from 'express';
-import { 
-  E2EEConfig, 
-  EncryptedData, 
-  DecryptedData 
+import {
+  E2EEConfig,
+  EncryptedData,
+  DecryptedData
 } from '../types';
-import { encrypt, decrypt, sign, verify } from '../utils/crypto';
+import { decrypt, encryptAES } from '../utils/crypto';
 
 export interface E2EEInterceptorOptions {
   config: E2EEConfig;
@@ -28,39 +21,33 @@ export class E2EEInterceptor implements NestInterceptor {
   private readonly config: Required<E2EEConfig>;
 
   constructor(private readonly options: E2EEInterceptorOptions) {
-    // Set default values
+    // Merge configuration with defaults
     this.config = {
       privateKey: options.config.privateKey,
       publicKey: options.config.publicKey,
       algorithm: options.config.algorithm || 'RSA-OAEP',
       encoding: options.config.encoding || 'base64',
-      encryptedDataHeader: options.config.encryptedDataHeader || 'x-encrypted-data',
-      signatureHeader: options.config.signatureHeader || 'x-signature',
+      customKeyHeader: options.config.customKeyHeader || 'x-custom-key',
+      customIVHeader: options.config.customIVHeader || 'x-custom-iv',
+      keyIdHeader: options.config.keyIdHeader || 'x-key-id',
       enableRequestDecryption: options.config.enableRequestDecryption !== false,
       enableResponseEncryption: options.config.enableResponseEncryption !== false,
-      enableSignatureVerification: options.config.enableSignatureVerification !== false,
-      enableResponseSigning: options.config.enableResponseSigning !== false,
-      excludePaths: options.config.excludePaths || [],
+      excludePaths: options.config.excludePaths || ['/health', '/keys', '/e2ee.json'],
       excludeMethods: options.config.excludeMethods || ['GET', 'HEAD', 'OPTIONS']
     };
   }
 
   /**
-   * Check if the request should be processed by E2EE
+   * Check if request should be processed by E2EE
    */
   private shouldProcessRequest(req: Request): boolean {
-    const path = req.path;
-    const method = req.method.toUpperCase();
-
-    // Check if path is excluded
-    if (this.config.excludePaths.some(excludedPath => 
-      path.startsWith(excludedPath) || path === excludedPath
-    )) {
+    // Skip excluded paths
+    if (this.config.excludePaths.some(path => req.path.startsWith(path))) {
       return false;
     }
 
-    // Check if method is excluded
-    if (this.config.excludeMethods.includes(method)) {
+    // Skip excluded methods
+    if (this.config.excludeMethods.includes(req.method.toUpperCase())) {
       return false;
     }
 
@@ -68,52 +55,38 @@ export class E2EEInterceptor implements NestInterceptor {
   }
 
   /**
-   * Decrypt request body
+   * Decrypt request using headers
    */
   private async decryptRequest(req: Request): Promise<DecryptedData> {
     try {
-      const encryptedDataHeader = req.headers[this.config.encryptedDataHeader.toLowerCase()] as string;
-      const signatureHeader = req.headers[this.config.signatureHeader.toLowerCase()] as string;
+      // Extract headers
+      const encryptedKeyHeader = req.headers[this.config.customKeyHeader.toLowerCase()] as string;
+      const ivHeader = req.headers[this.config.customIVHeader.toLowerCase()] as string;
+      // const keyIdHeader = req.headers[this.config.keyIdHeader.toLowerCase()] as string;
 
-      if (!encryptedDataHeader) {
-        throw new HttpException('Missing encrypted data header', HttpStatus.BAD_REQUEST);
+      if (!encryptedKeyHeader || !ivHeader) {
+        throw new HttpException('Missing encryption headers', HttpStatus.BAD_REQUEST);
       }
 
-      // Parse encrypted data
-      const encryptedData: EncryptedData = JSON.parse(encryptedDataHeader);
-      
-      // Verify timestamp to prevent replay attacks (5 minutes window)
-      const now = Date.now();
-      const timeDiff = Math.abs(now - encryptedData.timestamp);
-      if (timeDiff > 5 * 60 * 1000) { // 5 minutes
-        throw new HttpException('Request timestamp is too old or too new', HttpStatus.BAD_REQUEST);
-      }
-
-      // Verify signature if enabled
-      if (this.config.enableSignatureVerification && signatureHeader) {
-        const isValid = await verify(
-          encryptedData.data,
-          signatureHeader,
-          this.config.publicKey,
-          'RSA-SHA256'
-        );
-        
-        if (!isValid) {
-          throw new HttpException('Invalid signature', HttpStatus.UNAUTHORIZED);
-        }
+      // Get encrypted data from request body
+      if (!req.body || typeof req.body !== 'string') {
+        throw new HttpException('Missing encrypted data in request body', HttpStatus.BAD_REQUEST);
       }
 
       // Decrypt the data
       const decryptionResult = await decrypt(
-        encryptedData.data,
+        req.body,
+        encryptedKeyHeader,
+        ivHeader,
         this.config.privateKey
       );
 
       const decryptedData: DecryptedData = {
         data: JSON.parse(decryptionResult.decryptedData),
-        signature: signatureHeader,
-        timestamp: encryptedData.timestamp,
-        nonce: decryptionResult.nonce
+        timestamp: Date.now(),
+        nonce: decryptionResult.nonce,
+        ...(decryptionResult.aesKey && { aesKey: decryptionResult.aesKey }),
+        ...(decryptionResult.iv && { iv: decryptionResult.iv })
       };
 
       return decryptedData;
@@ -131,33 +104,10 @@ export class E2EEInterceptor implements NestInterceptor {
   /**
    * Encrypt response data
    */
-  private async encryptResponse(data: any): Promise<EncryptedData> {
+  private async encryptResponse(data: any, aesKey: Buffer, iv: Buffer): Promise<string> {
     try {
       const dataString = JSON.stringify(data);
-      const timestamp = Date.now();
-
-      // Encrypt the data
-      const encryptionResult = await encrypt(
-        dataString,
-        this.config.publicKey
-      );
-
-      const encryptedData: EncryptedData = {
-        data: encryptionResult.encryptedData,
-        timestamp,
-        nonce: encryptionResult.nonce
-      };
-
-      // Sign the encrypted data if enabled
-      if (this.config.enableResponseSigning) {
-        encryptedData.signature = await sign(
-          encryptionResult.encryptedData,
-          this.config.privateKey,
-          'RSA-SHA256'
-        );
-      }
-
-      return encryptedData;
+      return encryptAES(dataString, aesKey, iv);
     } catch (error) {
       throw new HttpException(
         `Encryption failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
@@ -175,20 +125,23 @@ export class E2EEInterceptor implements NestInterceptor {
       return next.handle();
     }
 
-    // Decrypt request if enabled
-    if (this.config.enableRequestDecryption && request.body) {
+    // Handle both request decryption and response encryption
+    if (this.config.enableRequestDecryption && this.config.enableResponseEncryption) {
       return next.handle().pipe(
         map(async (data: any) => {
           try {
+            // Decrypt request
             const decryptedData = await this.decryptRequest(request);
             
             // Update request body with decrypted data
             request.body = decryptedData.data;
             
-            // Store decrypted data for potential use
+            // Store decrypted data and encryption details for response
             (request as any).e2ee = {
               decryptedData,
-              originalBody: request.body
+              originalBody: request.body,
+              aesKey: decryptedData.aesKey,
+              iv: decryptedData.iv
             };
 
             // Call onDecrypt callback if provided
@@ -198,26 +151,20 @@ export class E2EEInterceptor implements NestInterceptor {
 
             // Encrypt response if enabled
             if (this.config.enableResponseEncryption) {
-              const encryptedData = await this.encryptResponse(data);
-              
-              // Set headers
-              response.set(this.config.encryptedDataHeader, JSON.stringify(encryptedData));
-              if (encryptedData.signature) {
-                response.set(this.config.signatureHeader, encryptedData.signature);
+              const e2eeContext = (request as any).e2ee;
+              if (!e2eeContext || !e2eeContext.aesKey || !e2eeContext.iv) {
+                throw new Error('Missing encryption context for response');
               }
+
+              const encryptedData = await this.encryptResponse(data, e2eeContext.aesKey, e2eeContext.iv);
               
               // Call onEncrypt callback if provided
               if (this.options.onEncrypt) {
-                this.options.onEncrypt(encryptedData, response);
+                this.options.onEncrypt({ data: encryptedData, timestamp: Date.now(), nonce: '' }, response);
               }
 
               // Return encrypted data
-              return {
-                encrypted: true,
-                data: encryptedData.data,
-                timestamp: encryptedData.timestamp,
-                nonce: encryptedData.nonce
-              };
+              return encryptedData;
             }
 
             return data;
@@ -242,26 +189,20 @@ export class E2EEInterceptor implements NestInterceptor {
       return next.handle().pipe(
         map(async (data: any) => {
           try {
-            const encryptedData = await this.encryptResponse(data);
-            
-            // Set headers
-            response.set(this.config.encryptedDataHeader, JSON.stringify(encryptedData));
-            if (encryptedData.signature) {
-              response.set(this.config.signatureHeader, encryptedData.signature);
+            const e2eeContext = (request as any).e2ee;
+            if (!e2eeContext || !e2eeContext.aesKey || !e2eeContext.iv) {
+              throw new Error('Missing encryption context for response');
             }
+
+            const encryptedData = await this.encryptResponse(data, e2eeContext.aesKey, e2eeContext.iv);
             
             // Call onEncrypt callback if provided
             if (this.options.onEncrypt) {
-              this.options.onEncrypt(encryptedData, response);
+              this.options.onEncrypt({ data: encryptedData, timestamp: Date.now(), nonce: '' }, response);
             }
 
             // Return encrypted data
-            return {
-              encrypted: true,
-              data: encryptedData.data,
-              timestamp: encryptedData.timestamp,
-              nonce: encryptedData.nonce
-            };
+            return encryptedData;
           } catch (error) {
             if (this.options.onError) {
               this.options.onError(error as Error, request, response);

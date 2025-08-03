@@ -1,59 +1,47 @@
 import { Request, Response, NextFunction } from 'express';
-import { 
-  E2EEConfig, 
-  E2EEMiddlewareOptions, 
-  E2EEMiddleware, 
+import {
+  E2EEMiddlewareOptions,
+  E2EEMiddleware,
+  E2EEConfig,
   E2EEError,
-  EncryptedData,
   DecryptedData
 } from '../types';
-import { encrypt, decrypt, sign, verify } from '../utils/crypto';
+import { decrypt, encryptAES } from '../utils/crypto';
 
 /**
  * Create E2EE middleware for Express.js
  * @param options - Middleware configuration options
- * @returns E2EEMiddleware function
+ * @returns E2EEMiddleware
  */
 export function createE2EEMiddleware(options: E2EEMiddlewareOptions): E2EEMiddleware {
-  const {
-    config,
-    onError,
-    onDecrypt,
-    onEncrypt
-  } = options;
+  const { config, onError, onDecrypt, onEncrypt } = options;
 
-  // Set default values
+  // Merge configuration with defaults
   const finalConfig: Required<E2EEConfig> = {
     privateKey: config.privateKey,
     publicKey: config.publicKey,
     algorithm: config.algorithm || 'RSA-OAEP',
     encoding: config.encoding || 'base64',
-    encryptedDataHeader: config.encryptedDataHeader || 'x-encrypted-data',
-    signatureHeader: config.signatureHeader || 'x-signature',
+    customKeyHeader: config.customKeyHeader || 'x-custom-key',
+    customIVHeader: config.customIVHeader || 'x-custom-iv',
+    keyIdHeader: config.keyIdHeader || 'x-key-id',
     enableRequestDecryption: config.enableRequestDecryption !== false,
     enableResponseEncryption: config.enableResponseEncryption !== false,
-    enableSignatureVerification: config.enableSignatureVerification !== false,
-    enableResponseSigning: config.enableResponseSigning !== false,
-    excludePaths: config.excludePaths || [],
+    excludePaths: config.excludePaths || ['/health', '/keys', '/e2ee.json'],
     excludeMethods: config.excludeMethods || ['GET', 'HEAD', 'OPTIONS']
   };
 
   /**
-   * Check if the request should be processed by E2EE
+   * Check if request should be processed by E2EE
    */
   function shouldProcessRequest(req: Request): boolean {
-    const path = req.path;
-    const method = req.method.toUpperCase();
-
-    // Check if path is excluded
-    if (finalConfig.excludePaths.some(excludedPath => 
-      path.startsWith(excludedPath) || path === excludedPath
-    )) {
+    // Skip excluded paths
+    if (finalConfig.excludePaths.some(path => req.path.startsWith(path))) {
       return false;
     }
 
-    // Check if method is excluded
-    if (finalConfig.excludeMethods.includes(method)) {
+    // Skip excluded methods
+    if (finalConfig.excludeMethods.includes(req.method.toUpperCase())) {
       return false;
     }
 
@@ -71,52 +59,38 @@ export function createE2EEMiddleware(options: E2EEMiddlewareOptions): E2EEMiddle
   }
 
   /**
-   * Decrypt request body
+   * Decrypt request using headers
    */
   async function decryptRequest(req: Request): Promise<DecryptedData> {
     try {
-      const encryptedDataHeader = req.headers[finalConfig.encryptedDataHeader.toLowerCase()] as string;
-      const signatureHeader = req.headers[finalConfig.signatureHeader.toLowerCase()] as string;
+      // Extract headers
+      const encryptedKeyHeader = req.headers[finalConfig.customKeyHeader.toLowerCase()] as string;
+      const ivHeader = req.headers[finalConfig.customIVHeader.toLowerCase()] as string;
+      // const keyIdHeader = req.headers[finalConfig.keyIdHeader.toLowerCase()] as string;
 
-      if (!encryptedDataHeader) {
-        throw createError('Missing encrypted data header', 'MISSING_ENCRYPTED_DATA');
+      if (!encryptedKeyHeader || !ivHeader) {
+        throw createError('Missing encryption headers', 'MISSING_ENCRYPTION_HEADERS');
       }
 
-      // Parse encrypted data
-      const encryptedData: EncryptedData = JSON.parse(encryptedDataHeader);
-      
-      // Verify timestamp to prevent replay attacks (5 minutes window)
-      const now = Date.now();
-      const timeDiff = Math.abs(now - encryptedData.timestamp);
-      if (timeDiff > 5 * 60 * 1000) { // 5 minutes
-        throw createError('Request timestamp is too old or too new', 'INVALID_TIMESTAMP');
-      }
-
-      // Verify signature if enabled
-      if (finalConfig.enableSignatureVerification && signatureHeader) {
-        const isValid = await verify(
-          encryptedData.data,
-          signatureHeader,
-          finalConfig.publicKey,
-          'RSA-SHA256'
-        );
-        
-        if (!isValid) {
-          throw createError('Invalid signature', 'INVALID_SIGNATURE', 401);
-        }
+      // Get encrypted data from request body
+      if (!req.body || typeof req.body !== 'string') {
+        throw createError('Missing encrypted data in request body', 'MISSING_ENCRYPTED_DATA');
       }
 
       // Decrypt the data
       const decryptionResult = await decrypt(
-        encryptedData.data,
+        req.body,
+        encryptedKeyHeader,
+        ivHeader,
         finalConfig.privateKey
       );
 
       const decryptedData: DecryptedData = {
         data: JSON.parse(decryptionResult.decryptedData),
-        signature: signatureHeader,
-        timestamp: encryptedData.timestamp,
-        nonce: decryptionResult.nonce
+        timestamp: Date.now(),
+        nonce: decryptionResult.nonce,
+        ...(decryptionResult.aesKey && { aesKey: decryptionResult.aesKey }),
+        ...(decryptionResult.iv && { iv: decryptionResult.iv })
       };
 
       return decryptedData;
@@ -134,33 +108,10 @@ export function createE2EEMiddleware(options: E2EEMiddlewareOptions): E2EEMiddle
   /**
    * Encrypt response data
    */
-  async function encryptResponse(data: any): Promise<EncryptedData> {
+  async function encryptResponse(data: any, aesKey: Buffer, iv: Buffer): Promise<string> {
     try {
       const dataString = JSON.stringify(data);
-      const timestamp = Date.now();
-
-      // Encrypt the data
-      const encryptionResult = await encrypt(
-        dataString,
-        finalConfig.publicKey
-      );
-
-      const encryptedData: EncryptedData = {
-        data: encryptionResult.encryptedData,
-        timestamp,
-        nonce: encryptionResult.nonce
-      };
-
-      // Sign the encrypted data if enabled
-      if (finalConfig.enableResponseSigning) {
-        encryptedData.signature = await sign(
-          encryptionResult.encryptedData,
-          finalConfig.privateKey,
-          'RSA-SHA256'
-        );
-      }
-
-      return encryptedData;
+      return encryptAES(dataString, aesKey, iv);
     } catch (error) {
       throw createError(
         `Encryption failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
@@ -186,10 +137,12 @@ export function createE2EEMiddleware(options: E2EEMiddlewareOptions): E2EEMiddle
         // Update request body with decrypted data
         req.body = decryptedData.data;
         
-        // Store decrypted data for potential use
+        // Store decrypted data and encryption details for response
         (req as any).e2ee = {
           decryptedData,
-          originalBody: req.body
+          originalBody: req.body,
+          aesKey: decryptedData.aesKey,
+          iv: decryptedData.iv
         };
 
         // Call onDecrypt callback if provided
@@ -202,26 +155,21 @@ export function createE2EEMiddleware(options: E2EEMiddlewareOptions): E2EEMiddle
       if (finalConfig.enableResponseEncryption) {
         (res as any).encryptAndSend = async function(data: any): Promise<void> {
           try {
-            const encryptedData = await encryptResponse(data);
-            
-            // Set headers
-            res.set(finalConfig.encryptedDataHeader, JSON.stringify(encryptedData));
-            if (encryptedData.signature) {
-              res.set(finalConfig.signatureHeader, encryptedData.signature);
+            // Get AES key and IV from request context
+            const e2eeContext = (req as any).e2ee;
+            if (!e2eeContext || !e2eeContext.aesKey || !e2eeContext.iv) {
+              throw new Error('Missing encryption context for response');
             }
+
+            const encryptedData = await encryptResponse(data, e2eeContext.aesKey, e2eeContext.iv);
             
             // Call onEncrypt callback if provided
             if (onEncrypt) {
-              onEncrypt(encryptedData, res);
+              onEncrypt({ data: encryptedData, timestamp: Date.now(), nonce: '' }, res);
             }
 
             // Send encrypted data in response body
-            res.json({
-              encrypted: true,
-              data: encryptedData.data,
-              timestamp: encryptedData.timestamp,
-              nonce: encryptedData.nonce
-            });
+            res.send(encryptedData);
           } catch (error) {
             if (onError) {
               onError(error as Error, req, res);

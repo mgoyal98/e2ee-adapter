@@ -1,26 +1,29 @@
-// Core types and interfaces
-export * from './types';
-
-// Cryptographic utilities
-export * from './utils/crypto';
-
-// Express.js middleware
+// Core exports
 export { createE2EEMiddleware } from './middleware/e2ee';
+export { E2EEInterceptor } from './interceptors/e2ee.interceptor';
+export { E2EEClient } from './client/e2ee-client';
 
-// NestJS interceptor
-export { E2EEInterceptor, E2EEInterceptorOptions } from './interceptors/e2ee.interceptor';
+// Crypto utilities
+export { 
+  generateKeyPair, 
+  encrypt, 
+  decrypt, 
+  encryptAES, 
+  decryptAES, 
+  generateNonce, 
+  hash 
+} from './utils/crypto';
 
-// Client utilities
-export { E2EEClient, E2EEClientConfig, E2EEClientRequest, E2EEClientResponse } from './client/e2ee-client';
-
-// Re-export commonly used types for convenience
-export type { 
-  E2EEConfig, 
-  E2EEMiddlewareOptions, 
+// Types
+export type {
+  E2EEConfig,
+  E2EEMiddlewareOptions,
   E2EEMiddleware,
-  KeyPair,
-  EncryptionResult,
-  DecryptionResult,
+  E2EEError,
   EncryptedData,
-  DecryptedData
+  DecryptedData,
+  KeyPair,
+  E2EEClientConfig,
+  E2EEClientRequest,
+  E2EEClientResponse
 } from './types'; 

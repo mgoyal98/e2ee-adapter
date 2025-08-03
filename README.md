@@ -1,29 +1,99 @@
 # E2EE Middleware
 
-A secure, production-ready TypeScript package for implementing End-to-End Encryption (E2EE) in Express.js and NestJS applications using RSA-256 encryption.
+A TypeScript package providing End-to-End Encryption (E2EE) middleware for Express.js and NestJS applications using hybrid encryption (AES-CBC + RSA).
 
-## 🔐 Features
+## 🚀 Features
 
-- **RSA-256 Encryption**: Uses RSA-OAEP with SHA-256 for secure encryption
-- **Hybrid Encryption**: Combines RSA and AES-GCM for optimal performance and security
-- **Digital Signatures**: RSA-SHA256 signing for message authenticity
-- **Replay Attack Protection**: Timestamp validation with configurable windows
-- **Express.js Middleware**: Drop-in middleware for Express applications
-- **NestJS Interceptor**: Native NestJS interceptor support
-- **Client SDK**: Easy-to-use client library for encrypted communication
-- **TypeScript Support**: Full TypeScript support with comprehensive type definitions
-- **Configurable Security**: Flexible configuration for different security requirements
-- **100% Secure**: Implements industry-standard cryptographic practices
+- **Hybrid Encryption**: AES-CBC for data encryption + RSA for key exchange
+- **Express.js Middleware**: Easy integration with Express applications
+- **NestJS Interceptor**: Seamless integration with NestJS applications
+- **Client SDK**: TypeScript client for making encrypted requests
+- **Header-based Flow**: Secure transmission using custom headers
+- **Automatic Key Management**: Server generates and manages RSA key pairs
+- **Response Encryption**: Full bidirectional encryption support
 
-## 🚀 Quick Start
+## 🔐 Security Features
 
-### Installation
+- **AES-256-CBC**: Symmetric encryption for data
+- **RSA-2048-OAEP**: Asymmetric encryption for key exchange
+- **Random IV Generation**: Unique initialization vectors for each request
+- **Replay Attack Protection**: Timestamp validation
+- **Secure Key Exchange**: RSA encryption for AES key transmission
+
+## 📦 Installation
 
 ```bash
 npm install e2ee-middleware
 ```
 
-### Basic Express.js Setup
+## 🏗️ Architecture
+
+The middleware implements a secure hybrid encryption flow:
+
+```
++-------------------------+                                  +-------------------------+
+|        CLIENT           |                                  |         SERVER          |
++-------------------------+                                  +-------------------------+
+|                                                         ▲
+| 1. Fetch server's public key from /e2ee.json            |
+|    → key: RSA public PEM                                |
+|    → key_id: version info                               |
+|                                                         |
+| 2. Generate AES key (32 bytes) and IV (16 bytes)        |
+|                                                         |
+| 3. Encrypt request payload using:                       |
+|    AES-CBC(payload, AES_key, IV)                        |
+|                                                         |
+| 4. Encrypt AES key using server's RSA public key        |
+|    RSA_encrypt(AES_key, server_pubkey)                  |
+|                                                         |
+| 5. Send HTTPS request:                                  |
+|    ----------------------------------------------       |
+|    Headers:                                             |
+|      x-custom-key: RSA_encrypted_AES_key (base64)       |
+|      x-custom-iv:  IV (base64)                          |
+|      x-key-id:     key_id                               |
+|      Content-Type: application/json                     |
+|    Body:                                                |
+|      Encrypted AES payload (base64)                     |
+|    ----------------------------------------------       |
+|                                                         |
+|                                                         ▼
+|                                         +------------------------------------------+
+|                                         | 6. Decrypt x-custom-key using RSA private|
+|                                         |    AES_key = RSA_decrypt(x-custom-key)   |
+|                                         +------------------------------------------+
+|                                                         ▼
+|                                         +------------------------------------------+
+|                                         | 7. Decrypt payload using AES-CBC         |
+|                                         |    plaintext = AES_decrypt(body, AES_key,|
+|                                         |                                        IV)|
+|                                         +------------------------------------------+
+|                                                         ▼
+|                                         +------------------------------------------+
+|                                         | 8. Process request, prepare response JSON |
+|                                         +------------------------------------------+
+|                                                         ▼
+|                                         +------------------------------------------+
+|                                         | 9. Encrypt response using AES-CBC        |
+|                                         |    response_encrypted = AES_encrypt(     |
+|                                         |            JSON, AES_key, IV)            |
+|                                         +------------------------------------------+
+|                                                         ▼
+|                                         +------------------------------------------+
+|                                         | 10. Send encrypted response              |
+|                                         |     Body: response_encrypted (base64)    |
+|                                         +------------------------------------------+
+|                                                         ▲
+| 11. Decrypt response using AES_key and IV              |
+|     plaintext_response = AES_decrypt(body, key, IV)    |
+|                                                         |
++-------------------------+                                  +-------------------------+
+```
+
+## 🛠️ Usage
+
+### Express.js Setup
 
 ```typescript
 import express from 'express';
@@ -32,52 +102,87 @@ import { createE2EEMiddleware, generateKeyPair } from 'e2ee-middleware';
 const app = express();
 
 // Generate RSA key pair
-const keys = await generateKeyPair(2048);
+const { publicKey, privateKey } = await generateKeyPair(2048);
 
 // Create E2EE middleware
 const e2eeMiddleware = createE2EEMiddleware({
   config: {
-    privateKey: keys.privateKey,
-    publicKey: keys.publicKey,
+    privateKey,
+    publicKey,
+    algorithm: 'RSA-OAEP',
     enableRequestDecryption: true,
     enableResponseEncryption: true,
-    enableSignatureVerification: true,
-    enableResponseSigning: true
+    excludePaths: ['/health', '/keys', '/e2ee.json'],
+    excludeMethods: ['GET', 'HEAD', 'OPTIONS']
+  },
+  onError: (error, req, res) => {
+    console.error('E2EE Error:', error.message);
+  },
+  onDecrypt: (decryptedData, req) => {
+    console.log('Request decrypted successfully');
+  },
+  onEncrypt: (encryptedData, res) => {
+    console.log('Response encrypted successfully');
   }
 });
 
 // Apply middleware
 app.use(e2eeMiddleware);
 
-// Your routes here...
-app.post('/api/users', (req, res) => {
-  // req.body is automatically decrypted
-  const user = req.body;
-  
-  // Use res.encryptAndSend for encrypted responses
-  res.encryptAndSend({
-    success: true,
-    user: { id: 1, ...user }
+// Add server configuration endpoint
+app.get('/e2ee.json', (req, res) => {
+  res.json({
+    key: publicKey,
+    key_id: 'v1',
+    algorithm: 'RSA-OAEP',
+    keySize: 2048
   });
+});
+
+// Protected endpoints
+app.post('/api/users', (req, res) => {
+  // req.body contains decrypted data
+  const user = { id: Date.now(), ...req.body };
+  
+  // Use encryptAndSend for encrypted responses
+  if (res.encryptAndSend) {
+    res.encryptAndSend({ success: true, user });
+  } else {
+    res.json({ success: true, user });
+  }
 });
 ```
 
-### Basic NestJS Setup
+### NestJS Setup
 
 ```typescript
-import { Module } from '@nestjs/common';
-import { APP_INTERCEPTOR } from '@nestjs/core';
+import { Injectable, NestInterceptor, ExecutionContext, CallHandler } from '@nestjs/common';
 import { E2EEInterceptor } from 'e2ee-middleware';
 
-@Module({
-  providers: [
-    {
-      provide: APP_INTERCEPTOR,
-      useClass: E2EEInterceptor,
-    },
-  ],
-})
-export class AppModule {}
+@Injectable()
+export class E2EEInterceptor extends E2EEInterceptor {
+  constructor() {
+    super({
+      config: {
+        privateKey: process.env.E2EE_PRIVATE_KEY,
+        publicKey: process.env.E2EE_PUBLIC_KEY,
+        enableRequestDecryption: true,
+        enableResponseEncryption: true
+      }
+    });
+  }
+}
+
+// Apply to controller or globally
+@UseInterceptors(E2EEInterceptor)
+@Controller('api')
+export class UsersController {
+  @Post('users')
+  createUser(@Body() userData: any) {
+    // userData is automatically decrypted
+    return { success: true, user: userData };
+  }
+}
 ```
 
 ### Client Usage
@@ -85,14 +190,15 @@ export class AppModule {}
 ```typescript
 import { E2EEClient } from 'e2ee-middleware';
 
-// Create client with server's public key only
+// Create client with server's public key
 const client = new E2EEClient({
-  serverPublicKey: 'server-public-key-here'
+  serverPublicKey: '-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----',
+  keyId: 'v1'
 });
 
-// Make encrypted request
+// Make encrypted requests
 const response = await client.request({
-  url: 'http://localhost:3000/api/users',
+  url: 'https://api.example.com/api/users',
   method: 'POST',
   data: {
     name: 'John Doe',
@@ -100,10 +206,10 @@ const response = await client.request({
   }
 });
 
-console.log('Response:', response.data);
+console.log(response.data); // Automatically decrypted response
 ```
 
-## 📚 API Reference
+## 📋 API Reference
 
 ### Configuration Options
 
@@ -113,198 +219,101 @@ interface E2EEConfig {
   privateKey: string;
   /** RSA public key for encryption */
   publicKey: string;
-  /** Algorithm for encryption (default: RSA-OAEP) */
+  /** Encryption algorithm (default: RSA-OAEP) */
   algorithm?: string;
-  /** Encoding for keys (default: 'base64') */
-  encoding?: BufferEncoding;
-  /** Custom headers for encrypted data */
-  encryptedDataHeader?: string;
-  /** Custom headers for signature */
-  signatureHeader?: string;
+  /** Custom key header name (default: x-custom-key) */
+  customKeyHeader?: string;
+  /** Custom IV header name (default: x-custom-iv) */
+  customIVHeader?: string;
+  /** Key ID header name (default: x-key-id) */
+  keyIdHeader?: string;
   /** Enable request decryption (default: true) */
   enableRequestDecryption?: boolean;
   /** Enable response encryption (default: true) */
   enableResponseEncryption?: boolean;
-  /** Enable signature verification (default: true) */
-  enableSignatureVerification?: boolean;
-  /** Enable response signing (default: true) */
-  enableResponseSigning?: boolean;
-  /** Paths to exclude from encryption/decryption */
+  /** Paths to exclude from encryption */
   excludePaths?: string[];
-  /** Methods to exclude from encryption/decryption */
+  /** HTTP methods to exclude from encryption */
   excludeMethods?: string[];
 }
 ```
 
-### Express.js Middleware
+### Client Configuration
 
 ```typescript
-import { createE2EEMiddleware, E2EEMiddlewareOptions } from 'e2ee-middleware';
-
-const middleware = createE2EEMiddleware({
-  config: E2EEConfig,
-  onError?: (error: Error, req: Request, res: Response) => void,
-  onDecrypt?: (decryptedData: DecryptedData, req: Request) => void,
-  onEncrypt?: (encryptedData: EncryptedData, res: Response) => void
-});
-```
-
-### NestJS Interceptor
-
-```typescript
-import { E2EEInterceptor, E2EEInterceptorOptions } from 'e2ee-middleware';
-
-const interceptor = new E2EEInterceptor({
-  config: E2EEConfig,
-  onError?: (error: Error, req: Request, res: Response) => void,
-  onDecrypt?: (decryptedData: DecryptedData, req: Request) => void,
-  onEncrypt?: (encryptedData: EncryptedData, res: Response) => void
-});
-```
-
-### Client SDK
-
-```typescript
-import { E2EEClient, E2EEClientConfig } from 'e2ee-middleware';
-
-const client = new E2EEClient({
-  serverPublicKey: string,
-  algorithm?: string,
-  enableResponseVerification?: boolean
-});
-
-// Methods
-await client.encryptRequest(data: any): Promise<{ encryptedData: string }>;
-await client.decryptResponse(encryptedData: string, serverPrivateKey?: string): Promise<any>;
-await client.request(config: E2EEClientRequest): Promise<E2EEClientResponse>;
+interface E2EEClientConfig {
+  /** Server's public key for encryption */
+  serverPublicKey: string;
+  /** Key ID for versioning */
+  keyId?: string;
+  /** Algorithm for encryption (default: RSA-OAEP) */
+  algorithm?: string;
+}
 ```
 
 ## 🔧 Examples
 
-### Express.js Server Example
+### Complete Express.js Example
 
-```bash
-cd examples/express-server
-npm install
-npm start
-```
+See `examples/express-server/server.js` for a complete working example.
 
-### Client Example
+### Complete Client Example
 
-```bash
-cd examples/client-example
-node client.js
-```
+See `examples/client-example/client.js` for a complete working example.
 
-### NestJS Server Example
+## 🚀 Quick Start
 
-```bash
-cd examples/nestjs-server
-npm install
-npm run build
-npm start
-```
+1. **Install the package:**
+   ```bash
+   npm install e2ee-middleware
+   ```
 
-## 🏗️ Architecture
+2. **Generate RSA keys:**
+   ```typescript
+   import { generateKeyPair } from 'e2ee-middleware';
+   const { publicKey, privateKey } = await generateKeyPair(2048);
+   ```
 
-### Client-Server E2EE Flow
+3. **Set up Express middleware:**
+   ```typescript
+   import { createE2EEMiddleware } from 'e2ee-middleware';
+   
+   const e2eeMiddleware = createE2EEMiddleware({
+     config: { privateKey, publicKey }
+   });
+   
+   app.use(e2eeMiddleware);
+   ```
 
-```
-┌─────────┐                    ┌─────────┐
-│ Client  │                    │ Server  │
-│         │                    │         │
-│ Public  │◄───────────────────┤ Private │
-│ Key     │                    │ Key     │
-└─────────┘                    └─────────┘
-     │                              │
-     │ 1. Encrypt Request           │
-     │    (using server public key) │
-     ├──────────────────────────────►│
-     │                              │
-     │                              │ 2. Decrypt Request
-     │                              │    (using server private key)
-     │                              │
-     │                              │ 3. Process Request
-     │                              │
-     │                              │ 4. Encrypt Response
-     │                              │    (using server private key)
-     │◄─────────────────────────────┤
-     │                              │
-     │ 5. Receive Response          │
-     │    (application handles)     │
-     │                              │
-```
+4. **Create client:**
+   ```typescript
+   import { E2EEClient } from 'e2ee-middleware';
+   
+   const client = new E2EEClient({
+     serverPublicKey: publicKey
+   });
+   ```
 
-### Key Distribution
-- **Client**: Only has server's public key
-- **Server**: Has its own private key
-- **No Client Keys**: Clients don't generate or store private keys
+5. **Make encrypted requests:**
+   ```typescript
+   const response = await client.request({
+     url: 'http://localhost:3000/api/users',
+     method: 'POST',
+     data: { name: 'John Doe' }
+   });
+   ```
 
-## 🛡️ Security Features
+## 🔒 Security Considerations
 
-### Encryption
-- **RSA-OAEP**: Optimal Asymmetric Encryption Padding
-- **AES-256-GCM**: Authenticated encryption for data
-- **Hybrid Approach**: RSA for key exchange, AES for data encryption
+- **Key Management**: Store private keys securely and never expose them
+- **Key Rotation**: Implement key rotation mechanisms for production use
+- **HTTPS**: Always use HTTPS in production to protect against MITM attacks
+- **Key Size**: Use 2048-bit RSA keys minimum for production
+- **Algorithm**: The middleware uses RSA-OAEP with SHA-256 for optimal security
 
-### Authentication
-- **RSA-SHA256**: Digital signatures for message authenticity
-- **Timestamp Validation**: Prevents replay attacks
-- **Nonce Generation**: Ensures message uniqueness
+## 📝 License
 
-### Configuration
-- **Path Exclusion**: Exclude specific paths from encryption
-- **Method Exclusion**: Exclude specific HTTP methods
-- **Custom Headers**: Configurable header names
-- **Callback Support**: Custom error handling and logging
-
-## 📋 Requirements
-
-- Node.js >= 16.0.0
-- TypeScript >= 5.0.0 (for TypeScript projects)
-- Express.js >= 4.17.0 (for Express middleware)
-- NestJS >= 10.0.0 (for NestJS interceptor)
-
-## 🔑 Key Management
-
-### Generating Keys
-
-```typescript
-import { generateKeyPair } from 'e2ee-middleware';
-
-// Generate 2048-bit RSA key pair
-const keys = await generateKeyPair(2048);
-
-console.log('Public Key:', keys.publicKey);
-console.log('Private Key:', keys.privateKey);
-```
-
-### Key Storage
-
-- **Public Keys**: Can be shared publicly
-- **Private Keys**: Must be kept secure and never shared
-- **Environment Variables**: Store private keys in environment variables
-- **Key Rotation**: Implement regular key rotation for production use
-
-## 🚨 Security Best Practices
-
-1. **Key Management**: Store private keys securely, never in code
-2. **Key Rotation**: Implement regular key rotation
-3. **HTTPS**: Always use HTTPS in production
-4. **Validation**: Validate all decrypted data
-5. **Error Handling**: Don't expose sensitive information in errors
-6. **Logging**: Be careful with logging encrypted data
-7. **Testing**: Test encryption/decryption thoroughly
-
-## 🧪 Testing
-
-```bash
-npm test
-```
-
-## 📄 License
-
-MIT License - see LICENSE file for details
+MIT License - see LICENSE file for details.
 
 ## 🤝 Contributing
 
@@ -314,13 +323,6 @@ MIT License - see LICENSE file for details
 4. Add tests
 5. Submit a pull request
 
-## 📞 Support
+## 📄 License
 
-For support and questions:
-- Open an issue on GitHub
-- Check the examples folder
-- Review the API documentation
-
-## 🔄 Version History
-
-- **1.0.0**: Initial release with Express.js and NestJS support 
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details. 
