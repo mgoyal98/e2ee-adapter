@@ -282,6 +282,8 @@ interface E2EEConfig {
   excludeMethods?: string[];
   /** If true, strictly enforce encryption for all requests. If false, only check for encryption after identifying headers (default: false) */
   enforced?: boolean;
+  /** If true, allow empty request bodies while still enabling encrypted responses (default: false) */
+  allowEmptyRequestBody?: boolean;
 }
 ```
 
@@ -458,6 +460,83 @@ const middleware = createE2EEMiddleware({
 - **Gradual Migration**: Start with non-enforced mode and gradually migrate clients
 - **Production**: Use enforced mode to ensure all traffic is encrypted
 - **Mixed Environments**: Use non-enforced mode when some clients cannot support encryption
+
+## 📤 Empty Request Body Support
+
+The library supports encrypted responses even for requests with empty bodies (like GET requests or POST requests without data). This is useful when you want to:
+
+- **GET requests with encrypted responses**: Retrieve data securely without sending any request body
+- **POST requests without data**: Submit forms or trigger actions that don't require request data
+- **API endpoints that only return data**: Endpoints that don't accept input but should return encrypted responses
+
+### Configuration:
+
+```typescript
+// Enable empty request body support
+const middleware = createE2EEMiddleware({
+  config: {
+    keys,
+    allowEmptyRequestBody: true, // Enable this feature
+    enableRequestDecryption: true,
+    enableResponseEncryption: true
+  }
+});
+```
+
+### How it works:
+
+1. **Client sends request** with encryption headers but no request body
+2. **Server processes request** by decrypting the AES key from headers
+3. **Server generates response** and encrypts it using the decrypted AES key
+4. **Client receives encrypted response** and decrypts it
+
+### Example Use Cases:
+
+```typescript
+// GET request with encrypted response
+app.get('/api/users', (req, res) => {
+  const users = [{ id: 1, name: 'John' }, { id: 2, name: 'Jane' }];
+  
+  if (res.encryptAndSend) {
+    res.encryptAndSend(users); // Response will be encrypted
+  } else {
+    res.json(users); // Fallback to plain JSON
+  }
+});
+
+// POST request without body but with encrypted response
+app.post('/api/health-check', (req, res) => {
+  const status = { status: 'healthy', timestamp: Date.now() };
+  
+  if (res.encryptAndSend) {
+    res.encryptAndSend(status); // Response will be encrypted
+  } else {
+    res.json(status); // Fallback to plain JSON
+  }
+});
+```
+
+### Client Example:
+
+```typescript
+// GET request with encrypted response
+const response = await client.request({
+  url: 'https://api.example.com/api/users',
+  method: 'GET',
+  keyId: 'domain1' // No data needed, but encryption headers required
+});
+
+console.log(response.data); // Automatically decrypted response
+
+// POST request without body but with encrypted response
+const healthResponse = await client.request({
+  url: 'https://api.example.com/api/health-check',
+  method: 'POST',
+  keyId: 'domain1' // No data needed, but encryption headers required
+});
+
+console.log(healthResponse.data); // Automatically decrypted response
+```
 
 ## 📝 License
 

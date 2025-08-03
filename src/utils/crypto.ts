@@ -101,6 +101,41 @@ export async function encrypt(
 }
 
 /**
+ * Decrypt only the AES key from the encrypted key header (for empty request bodies)
+ * @param encryptedKey - Encrypted AES key (base64)
+ * @param privateKey - RSA private key
+ * @returns Promise<{ aesKey: Buffer, iv: Buffer }>
+ */
+export async function decryptAESKey(
+  encryptedKey: string,
+  iv: string,
+  privateKey: string
+): Promise<{ aesKey: Buffer; iv: Buffer }> {
+  try {
+    // Decrypt only the AES key using RSA
+    const aesKey = crypto.privateDecrypt(
+      {
+        key: privateKey,
+        padding: crypto.constants.RSA_PKCS1_OAEP_PADDING,
+        oaepHash: 'sha256',
+      },
+      Buffer.from(encryptedKey, 'base64')
+    );
+
+    return {
+      aesKey: aesKey,
+      iv: Buffer.from(iv, 'base64'),
+    };
+  } catch (error) {
+    throw new Error(
+      `AES key decryption failed: ${
+        error instanceof Error ? error.message : 'Unknown error'
+      }`
+    );
+  }
+}
+
+/**
  * Decrypt data using hybrid decryption (AES-CBC + RSA)
  * @param encryptedData - Encrypted data (base64)
  * @param encryptedKey - RSA encrypted AES key (base64)

@@ -1,18 +1,13 @@
-// Core exports
-export { createE2EEMiddleware } from './middleware/e2ee';
-export { E2EEInterceptor } from './interceptors/e2ee.interceptor';
-export { E2EEClient } from './client/e2ee-client';
-
 // Crypto utilities
-export { 
-  generateKeyPair, 
+export {
+  generateKeyPair,
   generateMultipleKeyPairs,
-  encrypt, 
-  decrypt, 
-  encryptAES, 
-  decryptAES, 
-  generateNonce, 
-  hash 
+  encrypt,
+  decrypt,
+  encryptAES,
+  decryptAES,
+  generateNonce,
+  hash,
 } from './utils/crypto';
 
 // Types
@@ -27,5 +22,5 @@ export type {
   KeyStore,
   E2EEClientConfig,
   E2EEClientRequest,
-  E2EEClientResponse
-} from './types'; 
+  E2EEClientResponse,
+} from './types';

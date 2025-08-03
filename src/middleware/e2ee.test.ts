@@ -11,6 +11,10 @@ jest.mock('../utils/crypto', () => ({
     aesKey: Buffer.from('test-aes-key'),
     iv: Buffer.from('test-iv')
   }),
+  decryptAESKey: jest.fn().mockResolvedValue({
+    aesKey: Buffer.from('test-aes-key'),
+    iv: Buffer.from('test-iv')
+  }),
   encryptAES: jest.fn().mockResolvedValue('encrypted-response')
 }));
 
@@ -163,6 +167,85 @@ describe('E2EE Middleware - Enforcement Mode', () => {
       // Should call next() without processing
       expect(mockNext).toHaveBeenCalled();
       expect(mockResponse.status).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('Empty Request Body Support', () => {
+    it('should process requests with empty body when allowEmptyRequestBody is enabled', async () => {
+      const middleware = createE2EEMiddleware({
+        config: {
+          keys,
+          allowEmptyRequestBody: true,
+          enforced: true
+        }
+      });
+
+      // Mock request with encryption headers but no body
+      mockRequest.headers = {
+        'x-custom-key': 'encrypted-key',
+        'x-custom-iv': 'encrypted-iv',
+        'x-key-id': 'domain1'
+      };
+      mockRequest.body = undefined;
+
+      await middleware(mockRequest as Request, mockResponse as Response, mockNext);
+
+      // Should call next() after processing
+      expect(mockNext).toHaveBeenCalled();
+    });
+
+    it('should reject requests with empty body when allowEmptyRequestBody is disabled', async () => {
+      const middleware = createE2EEMiddleware({
+        config: {
+          keys,
+          allowEmptyRequestBody: false,
+          enforced: true
+        }
+      });
+
+      // Mock request with encryption headers but no body
+      mockRequest.headers = {
+        'x-custom-key': 'encrypted-key',
+        'x-custom-iv': 'encrypted-iv',
+        'x-key-id': 'domain1'
+      };
+      mockRequest.body = undefined;
+
+      await middleware(mockRequest as Request, mockResponse as Response, mockNext);
+
+      // Should not call next() and should return error
+      expect(mockNext).not.toHaveBeenCalled();
+      expect(mockResponse.status).toHaveBeenCalledWith(400);
+      expect(mockResponse.json).toHaveBeenCalledWith({
+        error: 'E2EE Error',
+        code: 'MISSING_ENCRYPTED_DATA',
+        message: 'Missing encrypted data in request body'
+      });
+    });
+
+    it('should process GET requests with empty body when allowEmptyRequestBody is enabled', async () => {
+      const middleware = createE2EEMiddleware({
+        config: {
+          keys,
+          allowEmptyRequestBody: true,
+          enforced: true,
+          excludeMethods: [] // Don't exclude GET
+        }
+      });
+
+      // Mock GET request with encryption headers but no body
+      mockRequest.method = 'GET';
+      mockRequest.headers = {
+        'x-custom-key': 'encrypted-key',
+        'x-custom-iv': 'encrypted-iv',
+        'x-key-id': 'domain1'
+      };
+      mockRequest.body = undefined;
+
+      await middleware(mockRequest as Request, mockResponse as Response, mockNext);
+
+      // Should call next() after processing
+      expect(mockNext).toHaveBeenCalled();
     });
   });
 }); 

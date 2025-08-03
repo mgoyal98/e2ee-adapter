@@ -41,11 +41,11 @@ export class E2EEClient {
    */
   private getServerPublicKey(keyId: string): string {
     const publicKey = this.serverKeys[keyId];
-    
+
     if (!publicKey) {
       throw new Error(`Server public key not found for keyId: ${keyId}`);
     }
-    
+
     return publicKey;
   }
 
@@ -55,7 +55,16 @@ export class E2EEClient {
    * @param keyId - Key ID to use for encryption
    * @returns Promise<{ encryptedData: string, encryptedKey: string, iv: string, originalAesKey: Buffer, originalIv: Buffer }>
    */
-  async encryptRequest(data: any, keyId: string): Promise<{ encryptedData: string, encryptedKey: string, iv: string, originalAesKey: Buffer, originalIv: Buffer }> {
+  async encryptRequest(
+    data: any,
+    keyId: string
+  ): Promise<{
+    encryptedData: string;
+    encryptedKey: string;
+    iv: string;
+    originalAesKey: Buffer;
+    originalIv: Buffer;
+  }> {
     try {
       const dataString = JSON.stringify(data);
       const serverPublicKey = this.getServerPublicKey(keyId);
@@ -68,10 +77,14 @@ export class E2EEClient {
         encryptedKey: encryptionResult.aesKey.toString('base64'),
         iv: encryptionResult.iv.toString('base64'),
         originalAesKey: encryptionResult.originalAesKey, // Use the original AES key for response decryption
-        originalIv: encryptionResult.iv // Store the original IV for response decryption
+        originalIv: encryptionResult.iv, // Store the original IV for response decryption
       };
     } catch (error) {
-      throw new Error(`Request encryption failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      throw new Error(
+        `Request encryption failed: ${
+          error instanceof Error ? error.message : 'Unknown error'
+        }`
+      );
     }
   }
 
@@ -82,12 +95,20 @@ export class E2EEClient {
    * @param iv - Initialization vector (Buffer)
    * @returns Promise<any>
    */
-  async decryptResponse(encryptedData: string, aesKey: Buffer, iv: Buffer): Promise<any> {
+  async decryptResponse(
+    encryptedData: string,
+    aesKey: Buffer,
+    iv: Buffer
+  ): Promise<any> {
     try {
       const decryptedData = decryptAES(encryptedData, aesKey, iv);
       return JSON.parse(decryptedData);
     } catch (error) {
-      throw new Error(`Response decryption failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      throw new Error(
+        `Response decryption failed: ${
+          error instanceof Error ? error.message : 'Unknown error'
+        }`
+      );
     }
   }
 
@@ -108,36 +129,43 @@ export class E2EEClient {
       // Prepare request headers
       const requestHeaders: Record<string, string> = {
         'Content-Type': 'application/json',
-        ...headers
+        ...headers,
       };
 
       let requestBody: string = '';
       let aesKey: Buffer | undefined;
       let iv: Buffer | undefined;
 
-      // Encrypt request data if provided
-      if (data) {
-        const { encryptedData, encryptedKey, iv: ivString, originalAesKey, originalIv } = await this.encryptRequest(data, keyId);
-        
-        // Set encryption headers
-        requestHeaders['x-custom-key'] = encryptedKey;
-        requestHeaders['x-custom-iv'] = ivString;
-        requestHeaders['x-key-id'] = keyId;
-        
-        // Store AES key and IV for response decryption
-        aesKey = originalAesKey;
-        iv = originalIv;
-        
-        // Set encrypted data as request body
+      // Always generate encryption headers for E2EE support
+      // This allows the server to encrypt responses even for GET requests or requests without body
+      const {
+        encryptedData,
+        encryptedKey,
+        iv: ivString,
+        originalAesKey,
+        originalIv,
+      } = await this.encryptRequest(data || {}, keyId);
+
+      // Set encryption headers
+      requestHeaders['x-custom-key'] = encryptedKey;
+      requestHeaders['x-custom-iv'] = ivString;
+      requestHeaders['x-key-id'] = keyId;
+
+      // Store AES key and IV for response decryption
+      aesKey = originalAesKey;
+      iv = originalIv;
+
+      // Set encrypted data as request body only if data was provided AND method is not GET
+      if (data && method.toUpperCase() !== 'GET') {
         requestBody = encryptedData;
       }
 
       // Make the HTTP request
       const fetchOptions: RequestInit = {
         method,
-        headers: requestHeaders
+        headers: requestHeaders,
       };
-      
+
       if (data) {
         fetchOptions.body = requestBody;
       }
@@ -155,11 +183,15 @@ export class E2EEClient {
 
       // Decrypt response if we have the AES key and IV
       let decryptedData = responseData;
+
       if (aesKey && iv && responseData) {
         try {
           decryptedData = await this.decryptResponse(responseData, aesKey, iv);
         } catch (error) {
-          console.warn('Failed to decrypt response, returning raw data:', error);
+          console.warn(
+            'Failed to decrypt response, returning raw data:',
+            error
+          );
           decryptedData = responseData;
         }
       }
@@ -168,11 +200,14 @@ export class E2EEClient {
         data: decryptedData,
         headers: responseHeaders,
         status: response.status,
-        statusText: response.statusText
+        statusText: response.statusText,
       };
     } catch (error) {
-      console.log(error)
-      throw new Error(`Request failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      throw new Error(
+        `Request failed: ${
+          error instanceof Error ? error.message : 'Unknown error'
+        }`
+      );
     }
   }
 
@@ -184,4 +219,4 @@ export class E2EEClient {
     const { generateKeyPair } = await import('../utils/crypto');
     return generateKeyPair(keySize);
   }
-} 
+}

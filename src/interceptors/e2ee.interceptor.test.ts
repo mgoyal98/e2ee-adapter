@@ -6,9 +6,25 @@ import { generateMultipleKeyPairs } from '../utils/crypto';
 // Mock the crypto module
 jest.mock('../utils/crypto', () => ({
   generateMultipleKeyPairs: jest.requireActual('../utils/crypto').generateMultipleKeyPairs,
-  decrypt: jest.fn().mockResolvedValue({
-    decryptedData: JSON.stringify({ test: 'data' }),
-    nonce: 'test-nonce',
+  decrypt: jest.fn().mockImplementation((data, _encryptedKey, _iv, _privateKey) => {
+    // If data is '{}' (empty JSON), return empty object result
+    if (data === '{}') {
+      return Promise.resolve({
+        decryptedData: '{}',
+        nonce: 'test-nonce',
+        aesKey: Buffer.from('test-aes-key'),
+        iv: Buffer.from('test-iv')
+      });
+    }
+    // Otherwise return normal result
+    return Promise.resolve({
+      decryptedData: JSON.stringify({ test: 'data' }),
+      nonce: 'test-nonce',
+      aesKey: Buffer.from('test-aes-key'),
+      iv: Buffer.from('test-iv')
+    });
+  }),
+  decryptAESKey: jest.fn().mockResolvedValue({
     aesKey: Buffer.from('test-aes-key'),
     iv: Buffer.from('test-iv')
   }),
@@ -185,6 +201,129 @@ describe('E2EE Interceptor - Enforcement Mode', () => {
           done();
         },
         error: done
+      });
+    });
+  });
+
+  describe('Empty Request Body Support', () => {
+    it('should process requests with empty body when allowEmptyRequestBody is enabled', (done) => {
+      const interceptor = new E2EEInterceptor({
+        config: {
+          keys,
+          allowEmptyRequestBody: true,
+          enforced: true
+        }
+      });
+
+      // Mock request with encryption headers but no body
+      const request = mockExecutionContext.switchToHttp().getRequest();
+      request.headers = {
+        'x-custom-key': 'encrypted-key',
+        'x-custom-iv': 'encrypted-iv',
+        'x-key-id': 'domain1'
+      };
+      request.body = undefined;
+
+      interceptor.intercept(mockExecutionContext, mockCallHandler).subscribe({
+        next: (result) => {
+          expect(result).toBeDefined();
+          done();
+        },
+        error: done
+      });
+    });
+
+    it('should reject requests with empty body when allowEmptyRequestBody is disabled', (done) => {
+      const interceptor = new E2EEInterceptor({
+        config: {
+          keys,
+          allowEmptyRequestBody: false,
+          enforced: true
+        }
+      });
+
+      // Create a fresh mock request and context for this test
+      const mockRequest = {
+        path: '/api/test',
+        method: 'POST',
+        headers: {
+          'x-custom-key': 'encrypted-key',
+          'x-custom-iv': 'encrypted-iv',
+          'x-key-id': 'domain1'
+        },
+        body: undefined
+      };
+      const mockExecutionContext = {
+        switchToHttp: jest.fn().mockReturnValue({
+          getRequest: jest.fn().mockReturnValue(mockRequest),
+          getResponse: jest.fn().mockReturnValue({
+            status: jest.fn().mockReturnThis(),
+            json: jest.fn().mockReturnThis(),
+            send: jest.fn().mockReturnThis()
+          })
+        })
+      } as any;
+
+      interceptor.intercept(mockExecutionContext, mockCallHandler).subscribe({
+        next: () => {
+          done(new Error('Should have thrown an error'));
+        },
+        error: (error) => {
+          try {
+            expect(error.status).toBe(400);
+            expect(error.message).toBe('Missing encrypted data in request body');
+            done();
+          } catch (e) {
+            done(e);
+          }
+        }
+      });
+    });
+
+    it('should process GET requests with empty body when allowEmptyRequestBody is enabled', (done) => {
+      const interceptor = new E2EEInterceptor({
+        config: {
+          keys,
+          allowEmptyRequestBody: true,
+          enforced: true,
+          excludeMethods: [] // Don't exclude GET
+        }
+      });
+
+      // Create a fresh mock request and context for this test
+      const mockRequest = {
+        path: '/api/test',
+        method: 'GET',
+        headers: {
+          'x-custom-key': 'encrypted-key',
+          'x-custom-iv': 'encrypted-iv',
+          'x-key-id': 'domain1'
+        },
+        body: undefined
+      };
+      const mockExecutionContext = {
+        switchToHttp: jest.fn().mockReturnValue({
+          getRequest: jest.fn().mockReturnValue(mockRequest),
+          getResponse: jest.fn().mockReturnValue({
+            status: jest.fn().mockReturnThis(),
+            json: jest.fn().mockReturnThis(),
+            send: jest.fn().mockReturnThis()
+          })
+        })
+      } as any;
+
+      interceptor.intercept(mockExecutionContext, mockCallHandler).subscribe({
+        next: (result) => {
+          try {
+            expect(result).toBeDefined();
+            done();
+          } catch (e) {
+            done(e);
+          }
+        },
+        error: (error) => {
+          done(error);
+        }
       });
     });
   });

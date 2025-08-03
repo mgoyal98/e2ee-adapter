@@ -31,6 +31,8 @@ export interface E2EEConfig {
   excludeMethods?: string[];
   /** If true, strictly enforce encryption for all requests. If false, only check for encryption after identifying headers (default: false) */
   enforced?: boolean;
+  /** If true, allow empty request bodies while still enabling encrypted responses (default: false) */
+  allowEmptyRequestBody?: boolean;
 }
 
 export interface EncryptedData {

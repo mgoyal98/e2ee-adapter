@@ -1,13 +1,13 @@
 import { Injectable, NestInterceptor, ExecutionContext, CallHandler, HttpException, HttpStatus } from '@nestjs/common';
 import { Observable, throwError } from 'rxjs';
-import { map, catchError } from 'rxjs/operators';
+import { map, catchError, mergeMap } from 'rxjs/operators';
 import { Request, Response } from 'express';
 import {
   E2EEConfig,
   EncryptedData,
   DecryptedData
 } from '../types';
-import { decrypt, encryptAES } from '../utils/crypto';
+import { decrypt, encryptAES, decryptAESKey } from '../utils/crypto';
 
 export interface E2EEInterceptorOptions {
   config: E2EEConfig;
@@ -36,7 +36,8 @@ export class E2EEInterceptor implements NestInterceptor {
       enableResponseEncryption: options.config.enableResponseEncryption !== false,
       excludePaths: options.config.excludePaths || ['/health', '/keys', '/e2ee.json'],
       excludeMethods: options.config.excludeMethods || ['GET', 'HEAD', 'OPTIONS'],
-      enforced: options.config.enforced || false
+      enforced: options.config.enforced || false,
+      allowEmptyRequestBody: options.config.allowEmptyRequestBody || false
     };
   }
 
@@ -99,9 +100,35 @@ export class E2EEInterceptor implements NestInterceptor {
         throw new HttpException('Missing keyId header', HttpStatus.BAD_REQUEST);
       }
 
-      // Get encrypted data from request body
-      if (!req.body || typeof req.body !== 'string') {
-        throw new HttpException('Missing encrypted data in request body', HttpStatus.BAD_REQUEST);
+      // Handle empty request body case
+      if (typeof req.body === 'undefined') {
+        if (this.config.allowEmptyRequestBody) {
+          // For empty request bodies, we still need to decrypt the AES key to get encryption context
+          // Get the appropriate key pair based on keyId
+          const keyPair = this.getKeyPair(keyIdHeader);
+          
+          // Decrypt the AES key from the header
+          const decryptionResult = await decryptAESKey(
+            encryptedKeyHeader,
+            ivHeader,
+            keyPair.privateKey
+          );
+
+          const decryptedData: DecryptedData = {
+            data: {}, // Empty object for empty request body
+            timestamp: Date.now(),
+            nonce: '',
+            aesKey: decryptionResult.aesKey,
+            iv: decryptionResult.iv
+          };
+
+          return decryptedData;
+        } else {
+          throw new HttpException('Missing encrypted data in request body', HttpStatus.BAD_REQUEST);
+        }
+      }
+      if (typeof req.body !== 'string') {
+        throw new HttpException('Request body must be a string', HttpStatus.BAD_REQUEST);
       }
 
       // Get the appropriate key pair based on keyId
@@ -178,32 +205,42 @@ export class E2EEInterceptor implements NestInterceptor {
     // Handle both request decryption and response encryption
     if (this.config.enableRequestDecryption && this.config.enableResponseEncryption) {
       return next.handle().pipe(
-        map(async (data: any) => {
+        mergeMap(async (data: any) => {
           try {
-            // Decrypt request
-            const decryptedData = await this.decryptRequest(request);
-            
-            // Update request body with decrypted data
-            request.body = decryptedData.data;
-            
-            // Store decrypted data and encryption details for response
-            (request as any).e2ee = {
-              decryptedData,
-              originalBody: request.body,
-              aesKey: decryptedData.aesKey,
-              iv: decryptedData.iv
-            };
+            let hasEncryptionContext = false;
 
-            // Call onDecrypt callback if provided
-            if (this.options.onDecrypt) {
-              this.options.onDecrypt(decryptedData, request);
+            // Decrypt request if there's a string body or if empty body is allowed
+            if (typeof request.body === 'string' || this.config.allowEmptyRequestBody) {
+              const decryptedData = await this.decryptRequest(request);
+              
+              // Update request body with decrypted data
+              request.body = decryptedData.data;
+              
+              // Store decrypted data and encryption details for response
+              (request as any).e2ee = {
+                decryptedData,
+                originalBody: request.body,
+                aesKey: decryptedData.aesKey,
+                iv: decryptedData.iv
+              };
+
+              hasEncryptionContext = true;
+
+              // Call onDecrypt callback if provided
+              if (this.options.onDecrypt) {
+                this.options.onDecrypt(decryptedData, request);
+              }
+            } else if (this.hasEncryptionHeaders(request) && typeof request.body === 'undefined' && !this.config.allowEmptyRequestBody) {
+              // If request has encryption headers but empty body is not allowed, throw error
+              throw new HttpException('Missing encrypted data in request body', HttpStatus.BAD_REQUEST);
             }
 
-            // Encrypt response if enabled
-            if (this.config.enableResponseEncryption) {
+            // Encrypt response if enabled and we have encryption context
+            if (this.config.enableResponseEncryption && hasEncryptionContext) {
               const e2eeContext = (request as any).e2ee;
               if (!e2eeContext || !e2eeContext.aesKey || !e2eeContext.iv) {
-                throw new Error('Missing encryption context for response');
+                // If no encryption context, return data without encryption
+                return data;
               }
 
               const encryptedData = await this.encryptResponse(data, e2eeContext.aesKey, e2eeContext.iv);
