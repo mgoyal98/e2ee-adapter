@@ -1,3 +1,15 @@
+## [1.0.0](https://github.com/mgoyal98/e2ee-adapter/compare/v0.1.2...v1.0.0) (2025-08-03)
+
+### ⚠ BREAKING CHANGES
+
+* added support for encrypted response in get request
+* added support for enforcement
+
+### Features
+
+* added support for encrypted response in get request ([7ae39e8](https://github.com/mgoyal98/e2ee-adapter/commit/7ae39e875bce9ae2cdb0ea26f5aa9cd245a43ecf))
+* added support for enforcement ([a31a548](https://github.com/mgoyal98/e2ee-adapter/commit/a31a548b8b082f8ecfde379cf71aaf9cb9d04ea4))
+
 ## [0.1.2](https://github.com/mgoyal98/e2ee-adapter/compare/v0.1.1...v0.1.2) (2025-08-03)
 
 ### Bug Fixes
