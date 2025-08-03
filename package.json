@@ -1,7 +1,7 @@
 {
   "name": "e2ee-middleware",
-  "version": "1.0.0",
-  "description": "End-to-End Encryption middleware for Express.js and NestJS with RSA256",
+  "version": "0.0.1",
+  "description": "End-to-End Encryption middleware for Express.js and NestJS using hybrid AES-CBC + RSA encryption with secure key exchange",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
@@ -16,15 +16,25 @@
   },
   "keywords": [
     "e2ee",
+    "end-to-end-encryption",
     "encryption",
     "middleware",
     "express",
     "nestjs",
+    "aes-cbc",
     "rsa",
+    "hybrid-encryption",
     "security",
-    "typescript"
+    "typescript",
+    "cryptography",
+    "key-exchange",
+    "secure-communication"
   ],
-  "author": "",
+  "author": {
+    "name": "Madhur Goyal",
+    "email": "hi@mgoyal.com",
+    "url": "https://mgoyal.com"
+  },
   "license": "MIT",
   "devDependencies": {
     "@types/node": "^20.0.0",
