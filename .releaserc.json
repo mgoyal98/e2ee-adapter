@@ -10,8 +10,7 @@
       {
         "assets": ["CHANGELOG.md", "package.json", "package-lock.json"]
       }
-    ],
-    "@semantic-release/github"
+    ]
   ],
   "preset": "conventionalcommits",
   "tagFormat": "v${version}"
