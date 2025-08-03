@@ -1,3 +1,9 @@
+## [0.1.2](https://github.com/mgoyal98/e2ee-adapter/compare/v0.1.1...v0.1.2) (2025-08-03)
+
+### Bug Fixes
+
+* remove github release ([fa34634](https://github.com/mgoyal98/e2ee-adapter/commit/fa346349548ca0830accc51a6cb8cccac593f722))
+
 ## [0.1.1](https://github.com/mgoyal98/e2ee-adapter/compare/v0.1.0...v0.1.1) (2025-08-03)
 
 ### Bug Fixes
