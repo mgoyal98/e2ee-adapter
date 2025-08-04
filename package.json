@@ -1,7 +1,7 @@
 {
   "name": "e2ee-adapter",
   "version": "1.2.0",
-  "description": "End-to-End Encryption middleware for Express.js and NestJS using hybrid AES-CBC + RSA encryption with secure key exchange",
+  "description": "Plug-and-play End-to-End Encryption middleware for Express.js and NestJS using hybrid AES-CBC + RSA encryption with secure key exchange",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {
@@ -48,7 +48,10 @@
     "typescript",
     "cryptography",
     "key-exchange",
-    "secure-communication"
+    "secure-communication",
+    "plug-and-play",
+    "zero-config",
+    "no-code-e2ee"
   ],
   "author": {
     "name": "Madhur Goyal",

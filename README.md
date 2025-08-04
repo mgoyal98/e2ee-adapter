@@ -1,6 +1,8 @@
 # E2EE Adapter
 
-A TypeScript package providing End-to-End Encryption (E2EE) middleware for Express.js and NestJS applications using hybrid encryption (AES-CBC + RSA).
+> "60% of this code was written by an AI (Cursor), but I am not a passive coder — every line has been verified, fixed, and tested by me (a human)."
+
+A **plug-and-play** TypeScript package providing End-to-End Encryption (E2EE) middleware for Express.js and NestJS applications using hybrid encryption (AES-CBC + RSA).
 
 ## 🚀 Features
 
@@ -10,14 +12,23 @@ A TypeScript package providing End-to-End Encryption (E2EE) middleware for Expre
 - **Client SDK**: TypeScript client for making encrypted requests
 - **Header-based Flow**: Secure transmission using custom headers
 - **Automatic Key Management**: Server generates and manages RSA key pairs
-- **Response Encryption**: Full bidirectional encryption support
+- **Full Bidirectional Encryption**: Request and response encryption support
+- **GET Request Encryption**: Encrypt responses for GET requests (even with empty request bodies)
+- **Multi-Domain Support**: Multiple encryption keys for different domains/tenants
+- **Custom Header Configuration**: Configurable header names for flexibility
+- **Path & Method Exclusion**: Exclude specific paths and HTTP methods from encryption
+- **Enforcement Modes**: Strict or flexible encryption enforcement
+- **Empty Request Body Support**: Encrypt responses for requests without data
+- **Callback Hooks**: Error handling, decryption, and encryption callbacks
+- **Utility Functions**: Key generation, encryption, and decryption utilities
+- **Automatic Response Encryption**: Transparent response encryption using `res.send()`
+- **Plug-and-Play Integration**: Zero configuration required for basic setup
 
 ## 🔐 Security Features
 
 - **AES-256-CBC**: Symmetric encryption for data
 - **RSA-2048-OAEP**: Asymmetric encryption for key exchange
 - **Random IV Generation**: Unique initialization vectors for each request
-- **Replay Attack Protection**: Timestamp validation
 - **Secure Key Exchange**: RSA encryption for AES key transmission
 
 ## 📦 Installation
@@ -36,7 +47,7 @@ npm install e2ee-adapter @nestjs/common rxjs
 
 ## 🏗️ Architecture
 
-The middleware implements a secure hybrid encryption flow:
+The middleware implements a secure hybrid encryption flow that supports both request encryption and response encryption for all HTTP methods, including GET requests with empty bodies:
 
 ```
 +-------------------------+                                  +-------------------------+
@@ -101,6 +112,41 @@ The middleware implements a secure hybrid encryption flow:
 
 ## 🛠️ Usage
 
+### 🚀 Plug-and-Play Setup
+
+The E2EE adapter is designed to be **plug-and-play** - you can get started with minimal configuration:
+
+```typescript
+// Express.js - Just add the middleware
+import { createE2EEMiddleware, generateMultipleKeyPairs } from 'e2ee-adapter';
+
+const keys = await generateMultipleKeyPairs(['domain1']);
+const e2eeMiddleware = createE2EEMiddleware({ config: { keys } });
+app.use(e2eeMiddleware); // That's it!
+
+// NestJS - Just add the interceptor
+import { E2EEInterceptor } from 'e2ee-adapter';
+
+@UseInterceptors(E2EEInterceptor)
+@Controller('api')
+export class UsersController {
+  // Your endpoints are now encrypted!
+}
+```
+
+### ⚠️ Important: Middleware/Interceptor Priority
+
+**The E2EE middleware and interceptor should be the first one to be used in your application stack.** This ensures that:
+
+- **Request decryption** happens before any other middleware processes the request
+- **Response encryption** happens after your application logic but before any response middleware
+- **Security headers** are properly set and maintained throughout the request lifecycle
+- **No data leakage** occurs through other middleware that might log or process request/response data
+
+**For Express.js:** Place the E2EE middleware as early as possible in your middleware stack, typically right after basic middleware like `express.json()` and `express.urlencoded()`.
+
+**For NestJS:** Apply the E2EE interceptor globally or at the controller level to ensure it runs before other interceptors and guards.
+
 ### Module Paths
 
 The package provides specific module paths for middleware, client, and interceptor:
@@ -148,7 +194,7 @@ const e2eeMiddleware = createE2EEMiddleware({
   }
 });
 
-// Apply middleware
+// Apply middleware (IMPORTANT: Place this early in your middleware stack)
 app.use(e2eeMiddleware);
 
 // Add server configuration endpoint
@@ -168,12 +214,14 @@ app.post('/api/users', (req, res) => {
   // req.body contains decrypted data
   const user = { id: Date.now(), ...req.body };
   
-  // Use encryptAndSend for encrypted responses
-  if (res.encryptAndSend) {
-    res.encryptAndSend({ success: true, user });
-  } else {
-    res.json({ success: true, user });
-  }
+  // The middleware will automatically encrypt the response if encryption context is available
+  res.send({ success: true, user });
+});
+
+// GET endpoint with encrypted response
+app.get('/api/users/:id', (req, res) => {
+  const user = { id: req.params.id, name: 'John Doe' };
+  res.send({ success: true, user }); // Will be automatically encrypted
 });
 ```
 
@@ -220,7 +268,7 @@ export class E2EEInterceptor extends E2EEInterceptor {
   }
 }
 
-// Apply to controller or globally
+// Apply to controller or globally (IMPORTANT: Apply early in the interceptor chain)
 @UseInterceptors(E2EEInterceptor)
 @Controller('api')
 export class UsersController {
@@ -289,14 +337,25 @@ interface E2EEConfig {
   enableRequestDecryption?: boolean;
   /** Enable response encryption (default: true) */
   enableResponseEncryption?: boolean;
-  /** Paths to exclude from encryption */
+  /** Paths to exclude from encryption (default: ['/health', '/keys', '/e2ee.json']) */
   excludePaths?: string[];
-  /** HTTP methods to exclude from encryption */
+  /** HTTP methods to exclude from encryption (default: ['GET', 'HEAD', 'OPTIONS']) */
   excludeMethods?: string[];
   /** If true, strictly enforce encryption for all requests. If false, only check for encryption after identifying headers (default: false) */
   enforced?: boolean;
   /** If true, allow empty request bodies while still enabling encrypted responses (default: false) */
   allowEmptyRequestBody?: boolean;
+}
+
+interface E2EEMiddlewareOptions {
+  /** E2EE configuration */
+  config: E2EEConfig;
+  /** Error callback for handling E2EE errors */
+  onError?: (error: Error, req: any, res: any) => void;
+  /** Callback triggered when request is successfully decrypted */
+  onDecrypt?: (decryptedData: DecryptedData, req: any) => void;
+  /** Callback triggered when response is successfully encrypted */
+  onEncrypt?: (encryptedData: EncryptedData, res: any) => void;
 }
 ```
 
@@ -309,6 +368,30 @@ interface E2EEClientConfig {
   /** Key ID for versioning */
   keyId?: string;
 }
+```
+
+### Response Encryption
+
+The middleware automatically encrypts responses when encryption context is available. Simply use the standard `res.send()` method:
+
+```typescript
+// Encrypted response (when E2EE context exists)
+app.post('/api/data', (req, res) => {
+  const data = { message: 'Hello World' };
+  res.send(data); // Automatically encrypted
+});
+
+// Encrypted response for GET requests
+app.get('/api/data', (req, res) => {
+  const data = { message: 'Hello World' };
+  res.send(data); // Automatically encrypted if E2EE context exists
+});
+
+// Non-encrypted response (bypasses E2EE)
+app.get('/api/public', (req, res) => {
+  const data = { message: 'Public data' };
+  res.json(data); // Never encrypted
+});
 ```
 
 ## 🔧 Examples
@@ -324,6 +407,10 @@ See `examples/client-example/client.js` for a complete working example.
 ### Vanilla JavaScript Client Example
 
 See `examples/vanilla-js-client/` for a browser-based vanilla JavaScript client with interactive UI.
+
+### Complete NestJS Example
+
+See `examples/nestjs-server/` for a complete NestJS application with proper architecture, DTOs, entities, and global E2EE interceptor configuration.
 
 
 
@@ -355,6 +442,7 @@ See `examples/vanilla-js-client/` for a browser-based vanilla JavaScript client 
      }
    });
    
+   // IMPORTANT: Place this early in your middleware stack
    app.use(e2eeMiddleware);
    ```
 
@@ -373,12 +461,21 @@ See `examples/vanilla-js-client/` for a browser-based vanilla JavaScript client 
 
 5. **Make encrypted requests:**
    ```typescript
+   // POST request with encrypted data
    const response = await client.request({
      url: 'http://localhost:3000/api/users',
      method: 'POST',
      data: { name: 'John Doe' },
      keyId: 'domain1' // Required: specify which key to use
    });
+
+   // GET request with encrypted response (no request body needed)
+   const userResponse = await client.request({
+     url: 'http://localhost:3000/api/users/123',
+     method: 'GET',
+     keyId: 'domain1' // Required: specify which key to use
+   });
+   ```
 
 
 ## 🌐 Multi-Domain Support
@@ -474,6 +571,76 @@ const middleware = createE2EEMiddleware({
 - **Production**: Use enforced mode to ensure all traffic is encrypted
 - **Mixed Environments**: Use non-enforced mode when some clients cannot support encryption
 
+## 🔧 Utility Functions
+
+The package provides several utility functions for key generation and encryption operations:
+
+```typescript
+import { 
+  generateKeyPair, 
+  generateMultipleKeyPairs,
+  encrypt,
+  decrypt,
+  encryptAES,
+  decryptAES,
+  decryptAESKey
+} from 'e2ee-adapter';
+
+// Generate a single RSA key pair
+const keyPair = await generateKeyPair(2048);
+
+// Generate multiple key pairs for different domains
+const keys = await generateMultipleKeyPairs(['domain1', 'domain2', 'domain3']);
+
+// Encrypt data using hybrid encryption
+const encrypted = await encrypt('sensitive data', publicKey);
+
+// Decrypt data
+const decrypted = await decrypt(encryptedData, encryptedKey, iv, privateKey);
+
+// AES-only encryption/decryption
+const aesEncrypted = encryptAES('data', aesKey, iv);
+const aesDecrypted = decryptAES(encryptedData, aesKey, iv);
+
+// Decrypt AES key from headers (for empty request bodies)
+const { aesKey, iv } = await decryptAESKey(encryptedKey, iv, privateKey);
+```
+
+## 🔐 GET Request Encryption
+
+**One of the key features of this library is the ability to encrypt responses for GET requests, even when they have no request body.** This is particularly useful for:
+
+- **Secure Data Retrieval**: GET requests that return sensitive data
+- **API Endpoints**: Public APIs that need to return encrypted responses
+- **Stateless Operations**: Operations that don't require request data but need secure responses
+
+### How GET Request Encryption Works:
+
+1. **Client sends GET request** with encryption headers (AES key encrypted with RSA)
+2. **No request body needed** - the encryption context is established via headers
+3. **Server processes request** and generates response data
+4. **Response is automatically encrypted** using the AES key from headers
+5. **Client decrypts response** using the same AES key
+
+### Example GET Request with Encrypted Response:
+
+```typescript
+// Server endpoint
+app.get('/api/users/:id', (req, res) => {
+  const user = { id: req.params.id, name: 'John Doe', email: 'john@example.com' };
+  res.send(user); // Automatically encrypted response
+});
+
+// Client request
+const response = await client.request({
+  url: 'https://api.example.com/api/users/123',
+  method: 'GET',
+  keyId: 'domain1' // No data needed, but encryption headers required
+});
+
+console.log(response.data); // Automatically decrypted user data
+```
+
 ## 📤 Empty Request Body Support
 
 The library supports encrypted responses even for requests with empty bodies (like GET requests or POST requests without data). This is useful when you want to:
@@ -509,23 +676,13 @@ const middleware = createE2EEMiddleware({
 // GET request with encrypted response
 app.get('/api/users', (req, res) => {
   const users = [{ id: 1, name: 'John' }, { id: 2, name: 'Jane' }];
-  
-  if (res.encryptAndSend) {
-    res.encryptAndSend(users); // Response will be encrypted
-  } else {
-    res.json(users); // Fallback to plain JSON
-  }
+  res.send(users); // Response will be automatically encrypted
 });
 
 // POST request without body but with encrypted response
 app.post('/api/health-check', (req, res) => {
   const status = { status: 'healthy', timestamp: Date.now() };
-  
-  if (res.encryptAndSend) {
-    res.encryptAndSend(status); // Response will be encrypted
-  } else {
-    res.json(status); // Fallback to plain JSON
-  }
+  res.send(status); // Response will be automatically encrypted
 });
 ```
 
@@ -550,10 +707,6 @@ const healthResponse = await client.request({
 
 console.log(healthResponse.data); // Automatically decrypted response
 ```
-
-## 📝 License
-
-MIT License - see LICENSE file for details.
 
 ## 🤝 Contributing
 

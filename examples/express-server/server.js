@@ -114,20 +114,12 @@ async function startServer() {
       createdAt: new Date().toISOString(),
     };
 
-    // Use the encryptAndSend method for encrypted responses
-    if (res.encryptAndSend) {
-      res.encryptAndSend({
-        success: true,
-        user,
-        message: 'User created successfully',
-      });
-    } else {
-      res.json({
-        success: true,
-        user,
-        message: 'User created successfully',
-      });
-    }
+    // The middleware will automatically encrypt the response
+    res.send({
+      success: true,
+      user,
+      message: 'User created successfully',
+    });
   });
 
   app.get('/api/users/:id', (req, res) => {
@@ -141,17 +133,10 @@ async function startServer() {
       createdAt: new Date().toISOString(),
     };
 
-    if (res.encryptAndSend) {
-      res.encryptAndSend({
-        success: true,
-        user,
-      });
-    } else {
-      res.json({
-        success: true,
-        user,
-      });
-    }
+    res.send({
+      success: true,
+      user,
+    });
   });
 
   // New endpoint to demonstrate empty request body support
@@ -181,21 +166,12 @@ async function startServer() {
       },
     ];
 
-    if (res.encryptAndSend) {
-      res.encryptAndSend({
-        success: true,
-        users,
-        count: users.length,
-        message: 'Users retrieved successfully (encrypted response)',
-      });
-    } else {
-      res.json({
-        success: true,
-        users,
-        count: users.length,
-        message: 'Users retrieved successfully',
-      });
-    }
+    res.send({
+      success: true,
+      users,
+      count: users.length,
+      message: 'Users retrieved successfully (encrypted response)',
+    });
   });
 
   app.put('/api/users/:id', (req, res) => {
@@ -209,36 +185,21 @@ async function startServer() {
       updatedAt: new Date().toISOString(),
     };
 
-    if (res.encryptAndSend) {
-      res.encryptAndSend({
-        success: true,
-        user: updatedUser,
-        message: 'User updated successfully',
-      });
-    } else {
-      res.json({
-        success: true,
-        user: updatedUser,
-        message: 'User updated successfully',
-      });
-    }
+    res.send({
+      success: true,
+      user: updatedUser,
+      message: 'User updated successfully',
+    });
   });
 
   app.delete('/api/users/:id', (req, res) => {
     const userId = req.params.id;
     console.log('🗑️ Deleting user with ID:', userId);
 
-    if (res.encryptAndSend) {
-      res.encryptAndSend({
-        success: true,
-        message: `User ${userId} deleted successfully`,
-      });
-    } else {
-      res.json({
-        success: true,
-        message: `User ${userId} deleted successfully`,
-      });
-    }
+    res.send({
+      success: true,
+      message: `User ${userId} deleted successfully`,
+    });
   });
 
   app.listen(PORT, () => {
