@@ -179,6 +179,19 @@ app.post('/api/users', (req, res) => {
 
 ### NestJS Setup
 
+**Important: Configure bodyParser for plain text requests**
+
+Before setting up the E2EE interceptor, you need to configure your NestJS application to handle plain text requests:
+
+```typescript
+import * as bodyParser from 'body-parser';
+
+// Add this to your main.ts or app.module.ts
+app.use(bodyParser.text({ type: 'text/plain' }));
+```
+
+**E2EE Interceptor Setup:**
+
 ```typescript
 import { Injectable, NestInterceptor, ExecutionContext, CallHandler } from '@nestjs/common';
 import { E2EEInterceptor } from 'e2ee-adapter/interceptor';

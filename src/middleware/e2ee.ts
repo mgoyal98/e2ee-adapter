@@ -2,11 +2,17 @@ import { Request, Response, NextFunction } from 'express';
 import {
   E2EEMiddlewareOptions,
   E2EEMiddleware,
-  E2EEConfig,
   E2EEError,
-  DecryptedData,
 } from '../types';
-import { decrypt, encryptAES, decryptAESKey } from '../utils/crypto';
+import {
+  shouldProcessRequest,
+  hasEncryptionHeaders,
+  decryptRequest,
+  encryptResponse,
+  mergeConfigWithDefaults,
+  validateConfig,
+  extractAESKeyFromHeaders,
+} from '../utils/e2ee-common';
 
 /**
  * Create E2EE middleware for Express.js
@@ -18,58 +24,11 @@ export function createE2EEMiddleware(
 ): E2EEMiddleware {
   const { config, onError, onDecrypt, onEncrypt } = options;
 
-  // Validate that we have keys
-  if (!config.keys || Object.keys(config.keys).length === 0) {
-    throw new Error('At least one key pair must be provided in config.keys');
-  }
+  // Validate configuration
+  validateConfig(config);
 
   // Merge configuration with defaults
-  const finalConfig: Required<E2EEConfig> = {
-    keys: config.keys,
-    customKeyHeader: config.customKeyHeader || 'x-custom-key',
-    customIVHeader: config.customIVHeader || 'x-custom-iv',
-    keyIdHeader: config.keyIdHeader || 'x-key-id',
-    enableRequestDecryption: config.enableRequestDecryption !== false,
-    enableResponseEncryption: config.enableResponseEncryption !== false,
-    excludePaths: config.excludePaths || ['/health', '/keys', '/e2ee.json'],
-    excludeMethods: config.excludeMethods || ['GET', 'HEAD', 'OPTIONS'],
-    enforced: config.enforced || false,
-    allowEmptyRequestBody: config.allowEmptyRequestBody || false,
-  };
-
-  /**
-   * Check if request should be processed by E2EE
-   */
-  function shouldProcessRequest(req: Request): boolean {
-    // Skip excluded paths
-    if (finalConfig.excludePaths.some((path) => req.path.startsWith(path))) {
-      return false;
-    }
-
-    // Skip excluded methods
-    if (finalConfig.excludeMethods.includes(req.method.toUpperCase())) {
-      return false;
-    }
-
-    return true;
-  }
-
-  /**
-   * Check if request has encryption headers
-   */
-  function hasEncryptionHeaders(req: Request): boolean {
-    const encryptedKeyHeader = req.headers[
-      finalConfig.customKeyHeader.toLowerCase()
-    ] as string;
-    const ivHeader = req.headers[
-      finalConfig.customIVHeader.toLowerCase()
-    ] as string;
-    const keyIdHeader = req.headers[
-      finalConfig.keyIdHeader.toLowerCase()
-    ] as string;
-
-    return !!(encryptedKeyHeader && ivHeader && keyIdHeader);
-  }
+  const finalConfig = mergeConfigWithDefaults(config);
 
   /**
    * Create E2EE error
@@ -86,163 +45,6 @@ export function createE2EEMiddleware(
   }
 
   /**
-   * Get key pair for a specific keyId
-   */
-  function getKeyPair(keyId: string): {
-    privateKey: string;
-    publicKey: string;
-  } {
-    const keyPair = finalConfig.keys[keyId];
-
-    if (!keyPair) {
-      throw createError(
-        `Key pair not found for keyId: ${keyId}`,
-        'INVALID_KEY_ID',
-        400
-      );
-    }
-
-    return keyPair;
-  }
-
-  /**
-   * Extract AES key from headers for response encryption (without decryption)
-   */
-  async function extractAESKeyFromHeaders(
-    req: Request
-  ): Promise<{ aesKey: Buffer; iv: Buffer }> {
-    const encryptedKeyHeader = req.headers[
-      finalConfig.customKeyHeader.toLowerCase()
-    ] as string;
-    const ivHeader = req.headers[
-      finalConfig.customIVHeader.toLowerCase()
-    ] as string;
-    const keyIdHeader = req.headers[
-      finalConfig.keyIdHeader.toLowerCase()
-    ] as string;
-
-    if (!encryptedKeyHeader || !ivHeader || !keyIdHeader) {
-      throw createError(
-        'Missing encryption headers',
-        'MISSING_ENCRYPTION_HEADERS'
-      );
-    }
-
-    const keyPair = getKeyPair(keyIdHeader);
-    
-    // Decrypt only the AES key from the header (no data decryption)
-    const { aesKey, iv } = await decryptAESKey(
-      encryptedKeyHeader,
-      ivHeader,
-      keyPair.privateKey
-    );
-
-    return { aesKey, iv };
-  }
-
-  /**
-   * Decrypt request using headers
-   */
-  async function decryptRequest(req: Request): Promise<DecryptedData> {
-    try {
-      // Extract headers
-      const encryptedKeyHeader = req.headers[
-        finalConfig.customKeyHeader.toLowerCase()
-      ] as string;
-      const ivHeader = req.headers[
-        finalConfig.customIVHeader.toLowerCase()
-      ] as string;
-      const keyIdHeader = req.headers[
-        finalConfig.keyIdHeader.toLowerCase()
-      ] as string;
-
-      if (!encryptedKeyHeader || !ivHeader) {
-        throw createError(
-          'Missing encryption headers',
-          'MISSING_ENCRYPTION_HEADERS'
-        );
-      }
-
-      if (!keyIdHeader) {
-        throw createError('Missing keyId header', 'MISSING_KEY_ID_HEADER');
-      }
-
-      // Handle empty request body case
-      if (!req.body || typeof req.body !== 'string') {
-        if (finalConfig.allowEmptyRequestBody) {
-          // For empty request bodies, extract AES key from headers for response encryption
-          const { aesKey, iv } = await extractAESKeyFromHeaders(req);
-
-          const decryptedData: DecryptedData = {
-            data: {}, // Empty object for empty request body
-            timestamp: Date.now(),
-            nonce: '',
-            aesKey,
-            iv,
-          };
-
-          return decryptedData;
-        } else {
-          throw createError(
-            'Missing encrypted data in request body',
-            'MISSING_ENCRYPTED_DATA'
-          );
-        }
-      }
-
-      // Get the appropriate key pair based on keyId
-      const keyPair = getKeyPair(keyIdHeader);
-
-      // Decrypt the data
-      const decryptionResult = await decrypt(
-        req.body,
-        encryptedKeyHeader,
-        ivHeader,
-        keyPair.privateKey
-      );
-
-      const decryptedData: DecryptedData = {
-        data: JSON.parse(decryptionResult.decryptedData),
-        timestamp: Date.now(),
-        nonce: decryptionResult.nonce,
-        ...(decryptionResult.aesKey && { aesKey: decryptionResult.aesKey }),
-        ...(decryptionResult.iv && { iv: decryptionResult.iv }),
-      };
-
-      return decryptedData;
-    } catch (error) {
-      if (error instanceof Error) {
-        throw createError(
-          `Decryption failed: ${error.message}`,
-          'DECRYPTION_FAILED'
-        );
-      }
-      throw createError('Decryption failed', 'DECRYPTION_FAILED');
-    }
-  }
-
-  /**
-   * Encrypt response data
-   */
-  async function encryptResponse(
-    data: any,
-    aesKey: Buffer,
-    iv: Buffer
-  ): Promise<string> {
-    try {
-      const dataString = JSON.stringify(data);
-      return encryptAES(dataString, aesKey, iv);
-    } catch (error) {
-      throw createError(
-        `Encryption failed: ${
-          error instanceof Error ? error.message : 'Unknown error'
-        }`,
-        'ENCRYPTION_FAILED'
-      );
-    }
-  }
-
-  /**
    * Main middleware function
    */
   return async (
@@ -252,14 +54,14 @@ export function createE2EEMiddleware(
   ): Promise<void> => {
     try {
       // Check if request should be processed
-      if (!shouldProcessRequest(req)) {
+      if (!shouldProcessRequest(req, finalConfig)) {
         return next();
       }
 
       // Check enforcement mode
       if (finalConfig.enforced) {
         // In enforced mode, all requests must be encrypted
-        if (!hasEncryptionHeaders(req)) {
+        if (!hasEncryptionHeaders(req, finalConfig)) {
           throw createError(
             'Encryption is enforced. All requests must include encryption headers.',
             'ENCRYPTION_ENFORCED',
@@ -268,14 +70,14 @@ export function createE2EEMiddleware(
         }
       } else {
         // In non-enforced mode, only process requests that have encryption headers
-        if (!hasEncryptionHeaders(req)) {
+        if (!hasEncryptionHeaders(req, finalConfig)) {
           return next();
         }
       }
 
       // Decrypt request if enabled and has body
       if (finalConfig.enableRequestDecryption && req.body) {
-        const decryptedData = await decryptRequest(req);
+        const decryptedData = await decryptRequest(req, finalConfig, createError);
 
         // Update request body with decrypted data
         req.body = decryptedData.data;
@@ -294,7 +96,7 @@ export function createE2EEMiddleware(
         }
       } else if (
         finalConfig.enableRequestDecryption &&
-        hasEncryptionHeaders(req) &&
+        hasEncryptionHeaders(req, finalConfig) &&
         !finalConfig.allowEmptyRequestBody &&
         !req.body
       ) {
@@ -305,12 +107,12 @@ export function createE2EEMiddleware(
         );
       } else if (
         finalConfig.enableRequestDecryption &&
-        hasEncryptionHeaders(req) &&
+        hasEncryptionHeaders(req, finalConfig) &&
         finalConfig.allowEmptyRequestBody &&
         !req.body
       ) {
         // Handle empty request body with encryption headers for response encryption
-        const { aesKey, iv } = await extractAESKeyFromHeaders(req);
+        const { aesKey, iv } = await extractAESKeyFromHeaders(req, finalConfig, createError);
 
         // Store encryption context for response
         (req as any).e2ee = {
@@ -347,7 +149,8 @@ export function createE2EEMiddleware(
             const encryptedData = await encryptResponse(
               data,
               e2eeContext.aesKey,
-              e2eeContext.iv
+              e2eeContext.iv,
+              createError
             );
 
             // Call onEncrypt callback if provided
