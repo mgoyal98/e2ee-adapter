@@ -7,8 +7,6 @@ export {
   encryptAES,
   decryptAES,
   decryptAESKey,
-  generateNonce,
-  hash,
 } from './utils/crypto';
 
 // Types

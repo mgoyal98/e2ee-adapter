@@ -40,8 +40,6 @@ export interface EncryptedData {
   data: string;
   /** Timestamp for replay protection */
   timestamp: number;
-  /** Nonce for additional security */
-  nonce: string;
 }
 
 export interface DecryptedData {
@@ -49,8 +47,6 @@ export interface DecryptedData {
   data: any;
   /** Timestamp */
   timestamp: number;
-  /** Nonce */
-  nonce: string;
   /** AES key for response encryption */
   aesKey?: Buffer;
   /** Initialization vector for response encryption */

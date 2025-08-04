@@ -165,7 +165,6 @@ export async function decryptRequest(
         const decryptedData: DecryptedData = {
           data: {}, // Empty object for empty request body
           timestamp: Date.now(),
-          nonce: '',
           aesKey,
           iv,
         };
@@ -193,7 +192,6 @@ export async function decryptRequest(
     const decryptedData: DecryptedData = {
       data: JSON.parse(decryptionResult.decryptedData),
       timestamp: Date.now(),
-      nonce: decryptionResult.nonce,
       ...(decryptionResult.aesKey && { aesKey: decryptionResult.aesKey }),
       ...(decryptionResult.iv && { iv: decryptionResult.iv }),
     };
@@ -380,7 +378,6 @@ export async function handleRequestDecryption(
       decryptedData: {
         data: {},
         timestamp: Date.now(),
-        nonce: '',
         aesKey,
         iv,
       },
@@ -424,7 +421,6 @@ export async function setupResponseEncryptionContext(
     decryptedData: {
       data: {},
       timestamp: Date.now(),
-      nonce: '',
       aesKey,
       iv,
     },
@@ -467,7 +463,7 @@ export async function handleResponseEncryption(
 
   // Call onEncrypt callback if provided
   if (onEncrypt) {
-    onEncrypt({ data: encryptedData, timestamp: Date.now(), nonce: '' }, res);
+    onEncrypt({ data: encryptedData, timestamp: Date.now() }, res);
   }
 
   return encryptedData;

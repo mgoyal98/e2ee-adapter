@@ -5,14 +5,8 @@ export interface KeyPair {
   privateKey: string;
 }
 
-export interface EncryptionResult {
-  encryptedData: string;
-  nonce: string;
-}
-
 export interface DecryptionResult {
   decryptedData: string;
-  nonce: string;
   aesKey?: Buffer;
   iv?: Buffer;
 }
@@ -171,7 +165,6 @@ export async function decrypt(
 
     return {
       decryptedData: decrypted,
-      nonce: '', // Not used in this implementation
       aesKey: aesKey,
       iv: Buffer.from(iv, 'base64'),
     };
@@ -214,24 +207,6 @@ export function decryptAES(
   let decrypted = decipher.update(encryptedData, 'base64', 'utf8');
   decrypted += decipher.final('utf8');
   return decrypted;
-}
-
-/**
- * Generate a secure random string
- * @param length - Length of the string
- * @returns string
- */
-export function generateNonce(length: number = 32): string {
-  return crypto.randomBytes(length).toString('hex');
-}
-
-/**
- * Hash data using SHA-256
- * @param data - Data to hash
- * @returns string
- */
-export function hash(data: string): string {
-  return crypto.createHash('sha256').update(data).digest('hex');
 }
 
 /**
