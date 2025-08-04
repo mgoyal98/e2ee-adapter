@@ -1,0 +1,24 @@
+{
+  "name": "e2ee-vanilla-js-client-example",
+  "version": "1.0.0",
+  "description": "Vanilla JavaScript E2EE client example with interactive UI",
+  "main": "index.html",
+  "scripts": {
+    "start": "python -m http.server 8080",
+    "serve": "npx http-server -p 8080 -o",
+    "dev": "npx live-server --port=8080 --open=/"
+  },
+  "keywords": [
+    "e2ee",
+    "encryption",
+    "vanilla-js",
+    "client",
+    "example"
+  ],
+  "author": "E2EE Adapter",
+  "license": "MIT",
+  "devDependencies": {
+    "http-server": "^14.1.1",
+    "live-server": "^1.2.2"
+  }
+} 

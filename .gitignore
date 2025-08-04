@@ -122,6 +122,3 @@ examples/*/test/
 examples/*/tests/
 examples/*/*.test.js
 examples/*/*.spec.js 
-
-
-examples/
