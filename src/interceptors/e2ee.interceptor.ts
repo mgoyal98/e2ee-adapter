@@ -11,13 +11,13 @@ import { map } from 'rxjs/operators';
 import { Request, Response } from 'express';
 import { E2EEConfig, EncryptedData, DecryptedData, E2EEError } from '../types';
 import {
-  shouldProcessRequest,
-  hasEncryptionHeaders,
-  decryptRequest,
-  encryptResponse,
+  processRequest,
+  handleRequestDecryption,
+  setupResponseEncryptionContext,
+  handleResponseEncryption,
   mergeConfigWithDefaults,
   validateConfig,
-  extractAESKeyFromHeaders,
+  createE2EEError,
 } from '../utils/e2ee-common';
 
 export interface E2EEInterceptorOptions {
@@ -47,173 +47,95 @@ export class E2EEInterceptor implements NestInterceptor {
     code: string,
     statusCode: number = 400
   ): E2EEError {
-    const error = new Error(message) as E2EEError;
-    error.code = code;
-    error.statusCode = statusCode;
-    return error;
+    return createE2EEError(message, code, statusCode);
   }
 
   async intercept(context: ExecutionContext, next: CallHandler): Promise<any> {
     const request = context.switchToHttp().getRequest<Request>();
     const response = context.switchToHttp().getResponse<Response>();
 
-    // Check if request should be processed
-    if (!shouldProcessRequest(request, this.config)) {
-      return next.handle();
-    }
+    try {
+      // Process request and check if it should be handled
+      const processingResult = processRequest(request, this.config, this.createError.bind(this));
+      if (processingResult.shouldContinue) {
+        return next.handle();
+      }
 
-    // Check enforcement mode
-    if (this.config.enforced) {
-      // In enforced mode, all requests must be encrypted
-      if (!hasEncryptionHeaders(request, this.config)) {
+      // Handle request decryption
+      let e2eeContext = await handleRequestDecryption(
+        request,
+        this.config,
+        this.createError.bind(this),
+        this.options.onDecrypt
+      );
+
+      // Setup encryption context for response-only encryption if needed
+      if (
+        !this.config.enableRequestDecryption &&
+        this.config.enableResponseEncryption
+      ) {
+        e2eeContext = await setupResponseEncryptionContext(
+          request,
+          this.config,
+          this.createError.bind(this)
+        );
+      }
+
+      // Store encryption context for response
+      if (e2eeContext) {
+        (request as any).e2ee = e2eeContext;
+      }
+
+      // Handle response encryption only
+      if (this.config.enableResponseEncryption) {
+        return next.handle().pipe(
+          map(async (data: any) => {
+            try {
+              const e2eeContext = (request as any).e2ee;
+              if (!e2eeContext || !e2eeContext.aesKey || !e2eeContext.iv) {
+                throw new Error('Missing encryption context for response');
+              }
+
+              const encryptedData = await handleResponseEncryption(
+                data,
+                e2eeContext,
+                this.createError.bind(this),
+                this.options.onEncrypt,
+                response
+              );
+
+              // Return encrypted data
+              return encryptedData;
+            } catch (error) {
+              if (this.options.onError) {
+                this.options.onError(error as Error, request, response);
+              }
+              throw error;
+            }
+          })
+        );
+      }
+
+      return next.handle();
+    } catch (error) {
+      if (this.options.onError) {
+        this.options.onError(error as Error, request, response);
+      }
+
+      // Convert E2EE errors to HttpException for NestJS
+      const e2eeError = error as E2EEError;
+      if (e2eeError.code) {
         return throwError(
           () =>
             new HttpException(
-              'Encryption is enforced. All requests must include encryption headers.',
-              HttpStatus.BAD_REQUEST
+              e2eeError.message,
+              e2eeError.statusCode || HttpStatus.BAD_REQUEST
             )
         );
       }
-    } else {
-      // In non-enforced mode, only process requests that have encryption headers
-      if (!hasEncryptionHeaders(request, this.config)) {
-        return next.handle();
-      }
+
+      // Re-throw other errors
+      throw error;
     }
-
-    // Decrypt request if there's a string body or if empty body is allowed
-    if (
-      this.config.enableRequestDecryption &&
-      typeof request.body === 'string'
-    ) {
-      const decryptedData = await decryptRequest(
-        request,
-        this.config,
-        this.createError.bind(this)
-      );
-
-      request.body = decryptedData.data;
-
-      // Store decrypted data and encryption details for response
-      (request as any).e2ee = {
-        decryptedData,
-        originalBody: request.body,
-        aesKey: decryptedData.aesKey,
-        iv: decryptedData.iv,
-      };
-
-      // Call onDecrypt callback if provided
-      if (this.options.onDecrypt) {
-        this.options.onDecrypt(decryptedData, request);
-      }
-    } else if (
-      this.config.enableRequestDecryption &&
-      hasEncryptionHeaders(request, this.config) &&
-      (typeof request.body === 'undefined' ||
-        Object.keys(request.body)?.length === 0) &&
-      !this.config.allowEmptyRequestBody
-    ) {
-      // If request has encryption headers but empty body is not allowed, throw error
-      throw new HttpException(
-        'Missing encrypted data in request body',
-        HttpStatus.BAD_REQUEST
-      );
-    } else if (
-      this.config.enableRequestDecryption &&
-      this.config.allowEmptyRequestBody &&
-      (!request.body || Object.keys(request.body)?.length === 0)
-    ) {
-      // Handle empty request body with encryption headers for response encryption
-      const { aesKey, iv } = await extractAESKeyFromHeaders(
-        request,
-        this.config,
-        this.createError.bind(this)
-      );
-
-      // Store encryption context for response
-      (request as any).e2ee = {
-        decryptedData: {
-          data: {},
-          timestamp: Date.now(),
-          nonce: '',
-          aesKey,
-          iv,
-        },
-        originalBody: {},
-        aesKey,
-        iv,
-      };
-
-      // Call onDecrypt callback if provided
-      if (this.options.onDecrypt) {
-        this.options.onDecrypt((request as any).e2ee.decryptedData, request);
-      }
-    } else if (this.config.enableRequestDecryption) {
-      throw new HttpException('Invalid request body', HttpStatus.BAD_REQUEST);
-    }
-
-    if (
-      !this.config.enableRequestDecryption &&
-      this.config.enableResponseEncryption
-    ) {
-      const { aesKey, iv } = await extractAESKeyFromHeaders(
-        request,
-        this.config,
-        this.createError.bind(this)
-      );
-
-      // Store encryption context for response
-      (request as any).e2ee = {
-        decryptedData: {
-          data: {},
-          timestamp: Date.now(),
-          nonce: '',
-          aesKey,
-          iv,
-        },
-        originalBody: {},
-        aesKey,
-        iv,
-      };
-    }
-
-    // Handle response encryption only
-    if (this.config.enableResponseEncryption) {
-      return next.handle().pipe(
-        map(async (data: any) => {
-          try {
-            const e2eeContext = (request as any).e2ee;
-            if (!e2eeContext || !e2eeContext.aesKey || !e2eeContext.iv) {
-              throw new Error('Missing encryption context for response');
-            }
-
-            const encryptedData = await encryptResponse(
-              data,
-              e2eeContext.aesKey,
-              e2eeContext.iv,
-              this.createError.bind(this)
-            );
-
-            // Call onEncrypt callback if provided
-            if (this.options.onEncrypt) {
-              this.options.onEncrypt(
-                { data: encryptedData, timestamp: Date.now(), nonce: '' },
-                response
-              );
-            }
-
-            // Return encrypted data
-            return encryptedData;
-          } catch (error) {
-            if (this.options.onError) {
-              this.options.onError(error as Error, request, response);
-            }
-            throw error;
-          }
-        })
-      );
-    }
-
-    return next.handle();
   }
 }

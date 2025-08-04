@@ -1,13 +1,13 @@
 import { Request, Response, NextFunction } from 'express';
 import { E2EEMiddlewareOptions, E2EEMiddleware, E2EEError } from '../types';
 import {
-  shouldProcessRequest,
-  hasEncryptionHeaders,
-  decryptRequest,
-  encryptResponse,
+  processRequest,
+  handleRequestDecryption,
+  setupResponseEncryptionContext,
+  handleResponseEncryption,
   mergeConfigWithDefaults,
   validateConfig,
-  extractAESKeyFromHeaders,
+  createE2EEError,
 } from '../utils/e2ee-common';
 
 /**
@@ -34,10 +34,7 @@ export function createE2EEMiddleware(
     code: string,
     statusCode: number = 400
   ): E2EEError {
-    const error = new Error(message) as E2EEError;
-    error.code = code;
-    error.statusCode = statusCode;
-    return error;
+    return createE2EEError(message, code, statusCode);
   }
 
   /**
@@ -49,123 +46,35 @@ export function createE2EEMiddleware(
     next: NextFunction
   ): Promise<void> => {
     try {
-      // Check if request should be processed
-      if (!shouldProcessRequest(req, finalConfig)) {
+      // Process request and check if it should be handled
+      const processingResult = processRequest(req, finalConfig, createError);
+      if (processingResult.shouldContinue) {
         return next();
       }
 
-      // Check enforcement mode
-      if (finalConfig.enforced) {
-        // In enforced mode, all requests must be encrypted
-        if (!hasEncryptionHeaders(req, finalConfig)) {
-          throw createError(
-            'Encryption is enforced. All requests must include encryption headers.',
-            'ENCRYPTION_ENFORCED',
-            400
-          );
-        }
-      } else {
-        // In non-enforced mode, only process requests that have encryption headers
-        if (!hasEncryptionHeaders(req, finalConfig)) {
-          return next();
-        }
-      }
+      // Handle request decryption
+      let e2eeContext = await handleRequestDecryption(
+        req,
+        finalConfig,
+        createError,
+        onDecrypt
+      );
 
-      // Decrypt request if there's a string body or if empty body is allowed
-      if (finalConfig.enableRequestDecryption && typeof req.body === 'string') {
-        const decryptedData = await decryptRequest(
-          req,
-          finalConfig,
-          createError
-        );
-
-        req.body = decryptedData.data;
-
-        // Store decrypted data and encryption details for response
-        (req as any).e2ee = {
-          decryptedData,
-          originalBody: req.body,
-          aesKey: decryptedData.aesKey,
-          iv: decryptedData.iv,
-        };
-
-        // Call onDecrypt callback if provided
-        if (onDecrypt) {
-          onDecrypt(decryptedData, req);
-        }
-      } else if (
-        finalConfig.enableRequestDecryption &&
-        hasEncryptionHeaders(req, finalConfig) &&
-        (typeof req.body === 'undefined' ||
-          Object.keys(req.body)?.length === 0 ||
-          !req.body) &&
-        !finalConfig.allowEmptyRequestBody
-      ) {
-        // If request has encryption headers but empty body is not allowed, throw error
-        throw createError(
-          'Missing encrypted data in request body',
-          'MISSING_ENCRYPTED_DATA',
-          400
-        );
-      } else if (
-        finalConfig.enableRequestDecryption &&
-        finalConfig.allowEmptyRequestBody &&
-        (!req.body ||
-          Object.keys(req.body)?.length === 0 ||
-          typeof req.body === 'undefined')
-      ) {
-        // Handle empty request body with encryption headers for response encryption
-        const { aesKey, iv } = await extractAESKeyFromHeaders(
-          req,
-          finalConfig,
-          createError
-        );
-
-        // Store encryption context for response
-        (req as any).e2ee = {
-          decryptedData: {
-            data: {},
-            timestamp: Date.now(),
-            nonce: '',
-            aesKey,
-            iv,
-          },
-          originalBody: {},
-          aesKey,
-          iv,
-        };
-
-        // Call onDecrypt callback if provided
-        if (onDecrypt) {
-          onDecrypt((req as any).e2ee.decryptedData, req);
-        }
-      } else if (finalConfig.enableRequestDecryption) {
-        throw createError('Invalid request body', 'INVALID_REQUEST_BODY', 400);
-      }
-
+      // Setup encryption context for response-only encryption if needed
       if (
         !finalConfig.enableRequestDecryption &&
         finalConfig.enableResponseEncryption
       ) {
-        const { aesKey, iv } = await extractAESKeyFromHeaders(
+        e2eeContext = await setupResponseEncryptionContext(
           req,
           finalConfig,
           createError
         );
+      }
 
-        // Store encryption context for response
-        (req as any).e2ee = {
-          decryptedData: {
-            data: {},
-            timestamp: Date.now(),
-            nonce: '',
-            aesKey,
-            iv,
-          },
-          originalBody: {},
-          aesKey,
-          iv,
-        };
+      // Store encryption context for response
+      if (e2eeContext) {
+        (req as any).e2ee = e2eeContext;
       }
 
       // Handle response encryption only
@@ -182,16 +91,14 @@ export function createE2EEMiddleware(
           }
 
           // Handle encryption asynchronously
-          encryptResponse(data, e2eeContext.aesKey, e2eeContext.iv, createError)
+          handleResponseEncryption(
+            data,
+            e2eeContext,
+            createError,
+            onEncrypt,
+            res
+          )
             .then((encryptedData) => {
-              // Call onEncrypt callback if provided
-              if (onEncrypt) {
-                onEncrypt(
-                  { data: encryptedData, timestamp: Date.now(), nonce: '' },
-                  res
-                );
-              }
-
               // Send the encrypted data
               originalSend.call(this, encryptedData);
             })
