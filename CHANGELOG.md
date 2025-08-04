@@ -1,3 +1,9 @@
+## [1.2.0](https://github.com/mgoyal98/e2ee-adapter/compare/v1.1.0...v1.2.0) (2025-08-04)
+
+### Features
+
+* add prettier ([122b6a4](https://github.com/mgoyal98/e2ee-adapter/commit/122b6a4dde1dba17779572b025fb094e9365ddd1))
+
 ## [1.1.0](https://github.com/mgoyal98/e2ee-adapter/compare/v1.0.3...v1.1.0) (2025-08-04)
 
 ### Features
