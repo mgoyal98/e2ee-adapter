@@ -1,3 +1,13 @@
+## [1.1.0](https://github.com/mgoyal98/e2ee-adapter/compare/v1.0.3...v1.1.0) (2025-08-04)
+
+### Features
+
+* merged duplicate code in common function ([a22a379](https://github.com/mgoyal98/e2ee-adapter/commit/a22a379382430b827721456f60bcf9e4bbf49a3a))
+
+### Bug Fixes
+
+* middleware conditions ([8ae8d29](https://github.com/mgoyal98/e2ee-adapter/commit/8ae8d29db66efa630b9f213624fdd46df397a1bc))
+
 ## [1.0.3](https://github.com/mgoyal98/e2ee-adapter/compare/v1.0.2...v1.0.3) (2025-08-04)
 
 ### Bug Fixes
