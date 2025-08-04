@@ -1,9 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import {
-  E2EEMiddlewareOptions,
-  E2EEMiddleware,
-  E2EEError,
-} from '../types';
+import { E2EEMiddlewareOptions, E2EEMiddleware, E2EEError } from '../types';
 import {
   shouldProcessRequest,
   hasEncryptionHeaders,
@@ -75,11 +71,14 @@ export function createE2EEMiddleware(
         }
       }
 
-      // Decrypt request if enabled and has body
-      if (finalConfig.enableRequestDecryption && req.body) {
-        const decryptedData = await decryptRequest(req, finalConfig, createError);
+      // Decrypt request if there's a string body or if empty body is allowed
+      if (finalConfig.enableRequestDecryption && typeof req.body === 'string') {
+        const decryptedData = await decryptRequest(
+          req,
+          finalConfig,
+          createError
+        );
 
-        // Update request body with decrypted data
         req.body = decryptedData.data;
 
         // Store decrypted data and encryption details for response
@@ -97,22 +96,30 @@ export function createE2EEMiddleware(
       } else if (
         finalConfig.enableRequestDecryption &&
         hasEncryptionHeaders(req, finalConfig) &&
-        !finalConfig.allowEmptyRequestBody &&
-        !req.body
+        (typeof req.body === 'undefined' ||
+          Object.keys(req.body)?.length === 0 ||
+          !req.body) &&
+        !finalConfig.allowEmptyRequestBody
       ) {
-        // If request has encryption headers but empty body is not allowed and there's no body
+        // If request has encryption headers but empty body is not allowed, throw error
         throw createError(
           'Missing encrypted data in request body',
-          'MISSING_ENCRYPTED_DATA'
+          'MISSING_ENCRYPTED_DATA',
+          400
         );
       } else if (
         finalConfig.enableRequestDecryption &&
-        hasEncryptionHeaders(req, finalConfig) &&
         finalConfig.allowEmptyRequestBody &&
-        !req.body
+        (!req.body ||
+          Object.keys(req.body)?.length === 0 ||
+          typeof req.body === 'undefined')
       ) {
         // Handle empty request body with encryption headers for response encryption
-        const { aesKey, iv } = await extractAESKeyFromHeaders(req, finalConfig, createError);
+        const { aesKey, iv } = await extractAESKeyFromHeaders(
+          req,
+          finalConfig,
+          createError
+        );
 
         // Store encryption context for response
         (req as any).e2ee = {
@@ -132,46 +139,77 @@ export function createE2EEMiddleware(
         if (onDecrypt) {
           onDecrypt((req as any).e2ee.decryptedData, req);
         }
+      } else if (finalConfig.enableRequestDecryption) {
+        throw createError('Invalid request body', 'INVALID_REQUEST_BODY', 400);
       }
 
-      // Add encryption capability to response object
+      if (
+        !finalConfig.enableRequestDecryption &&
+        finalConfig.enableResponseEncryption
+      ) {
+        const { aesKey, iv } = await extractAESKeyFromHeaders(
+          req,
+          finalConfig,
+          createError
+        );
+
+        // Store encryption context for response
+        (req as any).e2ee = {
+          decryptedData: {
+            data: {},
+            timestamp: Date.now(),
+            nonce: '',
+            aesKey,
+            iv,
+          },
+          originalBody: {},
+          aesKey,
+          iv,
+        };
+      }
+
+      // Handle response encryption only
       if (finalConfig.enableResponseEncryption) {
-        (res as any).encryptAndSend = async function (
-          data: any
-        ): Promise<void> {
-          try {
-            // Get AES key and IV from request context
-            const e2eeContext = (req as any).e2ee;
-            if (!e2eeContext || !e2eeContext.aesKey || !e2eeContext.iv) {
-              throw new Error('Missing encryption context for response');
-            }
+        // Store original send method
+        const originalSend = res.send;
 
-            const encryptedData = await encryptResponse(
-              data,
-              e2eeContext.aesKey,
-              e2eeContext.iv,
-              createError
-            );
-
-            // Call onEncrypt callback if provided
-            if (onEncrypt) {
-              onEncrypt(
-                { data: encryptedData, timestamp: Date.now(), nonce: '' },
-                res
-              );
-            }
-
-            // Send encrypted data in response body
-            res.send(encryptedData);
-          } catch (error) {
-            if (onError) {
-              onError(error as Error, req, res);
-            }
-            res.status(500).json({
-              error: 'Encryption failed',
-              message: error instanceof Error ? error.message : 'Unknown error',
-            });
+        // Override send method to encrypt response data
+        res.send = function (data: any): Response {
+          const e2eeContext = (req as any).e2ee;
+          if (!e2eeContext || !e2eeContext.aesKey || !e2eeContext.iv) {
+            // If no encryption context, send original data
+            return originalSend.call(this, data);
           }
+
+          // Handle encryption asynchronously
+          encryptResponse(data, e2eeContext.aesKey, e2eeContext.iv, createError)
+            .then((encryptedData) => {
+              // Call onEncrypt callback if provided
+              if (onEncrypt) {
+                onEncrypt(
+                  { data: encryptedData, timestamp: Date.now(), nonce: '' },
+                  res
+                );
+              }
+
+              // Send the encrypted data
+              originalSend.call(this, encryptedData);
+            })
+            .catch((error) => {
+              if (onError) {
+                onError(error as Error, req, res);
+              }
+
+              // Send error response
+              originalSend.call(this, {
+                error: 'Encryption failed',
+                message:
+                  error instanceof Error ? error.message : 'Unknown error',
+              });
+            });
+
+          // Return the response object for chaining
+          return this;
         };
       }
 
