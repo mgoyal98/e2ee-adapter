@@ -1,3 +1,1 @@
-export {
-  E2EEClient,
-} from './e2ee-client'; 
+export { E2EEClient } from './e2ee-client';

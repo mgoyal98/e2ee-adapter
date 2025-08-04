@@ -4,7 +4,11 @@ import { decrypt, encryptAES, decryptAESKey } from './crypto';
 
 export interface E2EECommonOptions {
   config: Required<E2EEConfig>;
-  createError: (message: string, code: string, statusCode?: number) => E2EEError;
+  createError: (
+    message: string,
+    code: string,
+    statusCode?: number,
+  ) => E2EEError;
 }
 
 export interface E2EEContext {
@@ -24,7 +28,7 @@ export interface RequestProcessingResult {
  */
 export function shouldProcessRequest(
   req: Request,
-  config: Required<E2EEConfig>
+  config: Required<E2EEConfig>,
 ): boolean {
   // Skip excluded paths
   if (config.excludePaths.some((path) => req.path.startsWith(path))) {
@@ -44,17 +48,13 @@ export function shouldProcessRequest(
  */
 export function hasEncryptionHeaders(
   req: Request,
-  config: Required<E2EEConfig>
+  config: Required<E2EEConfig>,
 ): boolean {
   const encryptedKeyHeader = req.headers[
     config.customKeyHeader.toLowerCase()
   ] as string;
-  const ivHeader = req.headers[
-    config.customIVHeader.toLowerCase()
-  ] as string;
-  const keyIdHeader = req.headers[
-    config.keyIdHeader.toLowerCase()
-  ] as string;
+  const ivHeader = req.headers[config.customIVHeader.toLowerCase()] as string;
+  const keyIdHeader = req.headers[config.keyIdHeader.toLowerCase()] as string;
 
   return !!(encryptedKeyHeader && ivHeader && keyIdHeader);
 }
@@ -65,7 +65,11 @@ export function hasEncryptionHeaders(
 export function getKeyPair(
   keyId: string,
   config: Required<E2EEConfig>,
-  createError: (message: string, code: string, statusCode?: number) => E2EEError
+  createError: (
+    message: string,
+    code: string,
+    statusCode?: number,
+  ) => E2EEError,
 ): { privateKey: string; publicKey: string } {
   const keyPair = config.keys[keyId];
 
@@ -73,7 +77,7 @@ export function getKeyPair(
     throw createError(
       `Key pair not found for keyId: ${keyId}`,
       'INVALID_KEY_ID',
-      400
+      400,
     );
   }
 
@@ -86,32 +90,32 @@ export function getKeyPair(
 export async function extractAESKeyFromHeaders(
   req: Request,
   config: Required<E2EEConfig>,
-  createError: (message: string, code: string, statusCode?: number) => E2EEError
+  createError: (
+    message: string,
+    code: string,
+    statusCode?: number,
+  ) => E2EEError,
 ): Promise<{ aesKey: Buffer; iv: Buffer }> {
   const encryptedKeyHeader = req.headers[
     config.customKeyHeader.toLowerCase()
   ] as string;
-  const ivHeader = req.headers[
-    config.customIVHeader.toLowerCase()
-  ] as string;
-  const keyIdHeader = req.headers[
-    config.keyIdHeader.toLowerCase()
-  ] as string;
+  const ivHeader = req.headers[config.customIVHeader.toLowerCase()] as string;
+  const keyIdHeader = req.headers[config.keyIdHeader.toLowerCase()] as string;
 
   if (!encryptedKeyHeader || !ivHeader || !keyIdHeader) {
     throw createError(
       'Missing encryption headers',
-      'MISSING_ENCRYPTION_HEADERS'
+      'MISSING_ENCRYPTION_HEADERS',
     );
   }
 
   const keyPair = getKeyPair(keyIdHeader, config, createError);
-  
+
   // Decrypt only the AES key from the header (no data decryption)
   const { aesKey, iv } = await decryptAESKey(
     encryptedKeyHeader,
     ivHeader,
-    keyPair.privateKey
+    keyPair.privateKey,
   );
 
   return { aesKey, iv };
@@ -123,24 +127,24 @@ export async function extractAESKeyFromHeaders(
 export async function decryptRequest(
   req: Request,
   config: Required<E2EEConfig>,
-  createError: (message: string, code: string, statusCode?: number) => E2EEError
+  createError: (
+    message: string,
+    code: string,
+    statusCode?: number,
+  ) => E2EEError,
 ): Promise<DecryptedData> {
   try {
     // Extract headers
     const encryptedKeyHeader = req.headers[
       config.customKeyHeader.toLowerCase()
     ] as string;
-    const ivHeader = req.headers[
-      config.customIVHeader.toLowerCase()
-    ] as string;
-    const keyIdHeader = req.headers[
-      config.keyIdHeader.toLowerCase()
-    ] as string;
+    const ivHeader = req.headers[config.customIVHeader.toLowerCase()] as string;
+    const keyIdHeader = req.headers[config.keyIdHeader.toLowerCase()] as string;
 
     if (!encryptedKeyHeader || !ivHeader) {
       throw createError(
         'Missing encryption headers',
-        'MISSING_ENCRYPTION_HEADERS'
+        'MISSING_ENCRYPTION_HEADERS',
       );
     }
 
@@ -152,7 +156,11 @@ export async function decryptRequest(
     if (!req.body || typeof req.body !== 'string') {
       if (config.allowEmptyRequestBody) {
         // For empty request bodies, extract AES key from headers for response encryption
-        const { aesKey, iv } = await extractAESKeyFromHeaders(req, config, createError);
+        const { aesKey, iv } = await extractAESKeyFromHeaders(
+          req,
+          config,
+          createError,
+        );
 
         const decryptedData: DecryptedData = {
           data: {}, // Empty object for empty request body
@@ -166,7 +174,7 @@ export async function decryptRequest(
       } else {
         throw createError(
           'Missing encrypted data in request body',
-          'MISSING_ENCRYPTED_DATA'
+          'MISSING_ENCRYPTED_DATA',
         );
       }
     }
@@ -179,7 +187,7 @@ export async function decryptRequest(
       req.body,
       encryptedKeyHeader,
       ivHeader,
-      keyPair.privateKey
+      keyPair.privateKey,
     );
 
     const decryptedData: DecryptedData = {
@@ -197,7 +205,7 @@ export async function decryptRequest(
     }
     throw createError(
       `Decryption failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
-      'DECRYPTION_FAILED'
+      'DECRYPTION_FAILED',
     );
   }
 }
@@ -209,7 +217,11 @@ export async function encryptResponse(
   data: any,
   aesKey: Buffer,
   iv: Buffer,
-  createError: (message: string, code: string, statusCode?: number) => E2EEError
+  createError: (
+    message: string,
+    code: string,
+    statusCode?: number,
+  ) => E2EEError,
 ): Promise<string> {
   try {
     const dataString = JSON.stringify(data);
@@ -219,7 +231,7 @@ export async function encryptResponse(
       `Encryption failed: ${
         error instanceof Error ? error.message : 'Unknown error'
       }`,
-      'ENCRYPTION_FAILED'
+      'ENCRYPTION_FAILED',
     );
   }
 }
@@ -227,7 +239,9 @@ export async function encryptResponse(
 /**
  * Merge configuration with defaults
  */
-export function mergeConfigWithDefaults(config: E2EEConfig): Required<E2EEConfig> {
+export function mergeConfigWithDefaults(
+  config: E2EEConfig,
+): Required<E2EEConfig> {
   return {
     keys: config.keys,
     customKeyHeader: config.customKeyHeader || 'x-custom-key',
@@ -257,7 +271,7 @@ export function validateConfig(config: E2EEConfig): void {
 export function createE2EEError(
   message: string,
   code: string,
-  statusCode: number = 400
+  statusCode: number = 400,
 ): E2EEError {
   const error = new Error(message) as E2EEError;
   error.code = code;
@@ -271,7 +285,11 @@ export function createE2EEError(
 export function processRequest(
   req: Request,
   config: Required<E2EEConfig>,
-  createError: (message: string, code: string, statusCode?: number) => E2EEError
+  createError: (
+    message: string,
+    code: string,
+    statusCode?: number,
+  ) => E2EEError,
 ): RequestProcessingResult {
   // Check if request should be processed
   if (!shouldProcessRequest(req, config)) {
@@ -285,7 +303,7 @@ export function processRequest(
       throw createError(
         'Encryption is enforced. All requests must include encryption headers.',
         'ENCRYPTION_ENFORCED',
-        400
+        400,
       );
     }
   } else {
@@ -304,8 +322,12 @@ export function processRequest(
 export async function handleRequestDecryption(
   req: Request,
   config: Required<E2EEConfig>,
-  createError: (message: string, code: string, statusCode?: number) => E2EEError,
-  onDecrypt?: (decryptedData: DecryptedData, req: Request) => void
+  createError: (
+    message: string,
+    code: string,
+    statusCode?: number,
+  ) => E2EEError,
+  onDecrypt?: (decryptedData: DecryptedData, req: Request) => void,
 ): Promise<E2EEContext | undefined> {
   // Decrypt request if there's a string body or if empty body is allowed
   if (config.enableRequestDecryption && typeof req.body === 'string') {
@@ -338,7 +360,7 @@ export async function handleRequestDecryption(
     throw createError(
       'Missing encrypted data in request body',
       'MISSING_ENCRYPTED_DATA',
-      400
+      400,
     );
   } else if (
     config.enableRequestDecryption &&
@@ -348,7 +370,11 @@ export async function handleRequestDecryption(
       typeof req.body === 'undefined')
   ) {
     // Handle empty request body with encryption headers for response encryption
-    const { aesKey, iv } = await extractAESKeyFromHeaders(req, config, createError);
+    const { aesKey, iv } = await extractAESKeyFromHeaders(
+      req,
+      config,
+      createError,
+    );
 
     const e2eeContext: E2EEContext = {
       decryptedData: {
@@ -382,9 +408,17 @@ export async function handleRequestDecryption(
 export async function setupResponseEncryptionContext(
   req: Request,
   config: Required<E2EEConfig>,
-  createError: (message: string, code: string, statusCode?: number) => E2EEError
+  createError: (
+    message: string,
+    code: string,
+    statusCode?: number,
+  ) => E2EEError,
 ): Promise<E2EEContext> {
-  const { aesKey, iv } = await extractAESKeyFromHeaders(req, config, createError);
+  const { aesKey, iv } = await extractAESKeyFromHeaders(
+    req,
+    config,
+    createError,
+  );
 
   const e2eeContext: E2EEContext = {
     decryptedData: {
@@ -408,15 +442,19 @@ export async function setupResponseEncryptionContext(
 export async function handleResponseEncryption(
   data: any,
   e2eeContext: E2EEContext,
-  createError: (message: string, code: string, statusCode?: number) => E2EEError,
+  createError: (
+    message: string,
+    code: string,
+    statusCode?: number,
+  ) => E2EEError,
   onEncrypt?: (encryptedData: any, res: any) => void,
-  res?: any
+  res?: any,
 ): Promise<string> {
   if (!e2eeContext || !e2eeContext.aesKey || !e2eeContext.iv) {
     throw createError(
       'Missing encryption context for response',
       'MISSING_ENCRYPTION_CONTEXT',
-      500
+      500,
     );
   }
 
@@ -424,16 +462,13 @@ export async function handleResponseEncryption(
     data,
     e2eeContext.aesKey,
     e2eeContext.iv,
-    createError
+    createError,
   );
 
   // Call onEncrypt callback if provided
   if (onEncrypt) {
-    onEncrypt(
-      { data: encryptedData, timestamp: Date.now(), nonce: '' },
-      res
-    );
+    onEncrypt({ data: encryptedData, timestamp: Date.now(), nonce: '' }, res);
   }
 
   return encryptedData;
-} 
+}

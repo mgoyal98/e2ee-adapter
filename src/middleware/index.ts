@@ -1,3 +1,1 @@
-export {
-  createE2EEMiddleware,
-} from './e2ee'; 
+export { createE2EEMiddleware } from './e2ee';

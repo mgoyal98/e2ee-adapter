@@ -57,7 +57,7 @@ export class E2EEClient {
    */
   async encryptRequest(
     data: any,
-    keyId: string
+    keyId: string,
   ): Promise<{
     encryptedData: string;
     encryptedKey: string;
@@ -83,7 +83,7 @@ export class E2EEClient {
       throw new Error(
         `Request encryption failed: ${
           error instanceof Error ? error.message : 'Unknown error'
-        }`
+        }`,
       );
     }
   }
@@ -98,7 +98,7 @@ export class E2EEClient {
   async decryptResponse(
     encryptedData: string,
     aesKey: Buffer,
-    iv: Buffer
+    iv: Buffer,
   ): Promise<any> {
     try {
       const decryptedData = decryptAES(encryptedData, aesKey, iv);
@@ -107,7 +107,7 @@ export class E2EEClient {
       throw new Error(
         `Response decryption failed: ${
           error instanceof Error ? error.message : 'Unknown error'
-        }`
+        }`,
       );
     }
   }
@@ -190,7 +190,7 @@ export class E2EEClient {
         } catch (error) {
           console.warn(
             'Failed to decrypt response, returning raw data:',
-            error
+            error,
           );
           decryptedData = responseData;
         }
@@ -206,7 +206,7 @@ export class E2EEClient {
       throw new Error(
         `Request failed: ${
           error instanceof Error ? error.message : 'Unknown error'
-        }`
+        }`,
       );
     }
   }

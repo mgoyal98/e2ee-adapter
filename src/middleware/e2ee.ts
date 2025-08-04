@@ -16,7 +16,7 @@ import {
  * @returns E2EEMiddleware
  */
 export function createE2EEMiddleware(
-  options: E2EEMiddlewareOptions
+  options: E2EEMiddlewareOptions,
 ): E2EEMiddleware {
   const { config, onError, onDecrypt, onEncrypt } = options;
 
@@ -32,7 +32,7 @@ export function createE2EEMiddleware(
   function createError(
     message: string,
     code: string,
-    statusCode: number = 400
+    statusCode: number = 400,
   ): E2EEError {
     return createE2EEError(message, code, statusCode);
   }
@@ -43,7 +43,7 @@ export function createE2EEMiddleware(
   return async (
     req: Request,
     res: Response,
-    next: NextFunction
+    next: NextFunction,
   ): Promise<void> => {
     try {
       // Process request and check if it should be handled
@@ -57,7 +57,7 @@ export function createE2EEMiddleware(
         req,
         finalConfig,
         createError,
-        onDecrypt
+        onDecrypt,
       );
 
       // Setup encryption context for response-only encryption if needed
@@ -68,7 +68,7 @@ export function createE2EEMiddleware(
         e2eeContext = await setupResponseEncryptionContext(
           req,
           finalConfig,
-          createError
+          createError,
         );
       }
 
@@ -96,7 +96,7 @@ export function createE2EEMiddleware(
             e2eeContext,
             createError,
             onEncrypt,
-            res
+            res,
           )
             .then((encryptedData) => {
               // Send the encrypted data

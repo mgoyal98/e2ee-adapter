@@ -23,7 +23,7 @@ export interface DecryptionResult {
  * @returns Promise<KeyPair>
  */
 export async function generateKeyPair(
-  keySize: number = 2048
+  keySize: number = 2048,
 ): Promise<KeyPair> {
   return new Promise((resolve, reject) => {
     crypto.generateKeyPair(
@@ -45,7 +45,7 @@ export async function generateKeyPair(
         } else {
           resolve({ publicKey, privateKey });
         }
-      }
+      },
     );
   });
 }
@@ -58,7 +58,7 @@ export async function generateKeyPair(
  */
 export async function encrypt(
   data: string,
-  publicKey: string
+  publicKey: string,
 ): Promise<{
   encryptedData: string;
   aesKey: Buffer;
@@ -82,7 +82,7 @@ export async function encrypt(
         padding: crypto.constants.RSA_PKCS1_OAEP_PADDING,
         oaepHash: 'sha256',
       },
-      aesKey
+      aesKey,
     );
 
     return {
@@ -95,7 +95,7 @@ export async function encrypt(
     throw new Error(
       `Encryption failed: ${
         error instanceof Error ? error.message : 'Unknown error'
-      }`
+      }`,
     );
   }
 }
@@ -109,7 +109,7 @@ export async function encrypt(
 export async function decryptAESKey(
   encryptedKey: string,
   iv: string,
-  privateKey: string
+  privateKey: string,
 ): Promise<{ aesKey: Buffer; iv: Buffer }> {
   try {
     // Decrypt only the AES key using RSA
@@ -119,7 +119,7 @@ export async function decryptAESKey(
         padding: crypto.constants.RSA_PKCS1_OAEP_PADDING,
         oaepHash: 'sha256',
       },
-      Buffer.from(encryptedKey, 'base64')
+      Buffer.from(encryptedKey, 'base64'),
     );
 
     return {
@@ -130,7 +130,7 @@ export async function decryptAESKey(
     throw new Error(
       `AES key decryption failed: ${
         error instanceof Error ? error.message : 'Unknown error'
-      }`
+      }`,
     );
   }
 }
@@ -147,7 +147,7 @@ export async function decrypt(
   encryptedData: string,
   encryptedKey: string,
   iv: string,
-  privateKey: string
+  privateKey: string,
 ): Promise<DecryptionResult> {
   try {
     // 1. Decrypt the AES key using RSA
@@ -157,14 +157,14 @@ export async function decrypt(
         padding: crypto.constants.RSA_PKCS1_OAEP_PADDING,
         oaepHash: 'sha256',
       },
-      Buffer.from(encryptedKey, 'base64')
+      Buffer.from(encryptedKey, 'base64'),
     );
 
     // 2. Decrypt the data using AES-CBC
     const decipher = crypto.createDecipheriv(
       'aes-256-cbc',
       aesKey,
-      Buffer.from(iv, 'base64')
+      Buffer.from(iv, 'base64'),
     );
     let decrypted = decipher.update(encryptedData, 'base64', 'utf8');
     decrypted += decipher.final('utf8');
@@ -179,7 +179,7 @@ export async function decrypt(
     throw new Error(
       `Decryption failed: ${
         error instanceof Error ? error.message : 'Unknown error'
-      }`
+      }`,
     );
   }
 }
@@ -208,7 +208,7 @@ export function encryptAES(data: string, aesKey: Buffer, iv: Buffer): string {
 export function decryptAES(
   encryptedData: string,
   aesKey: Buffer,
-  iv: Buffer
+  iv: Buffer,
 ): string {
   const decipher = crypto.createDecipheriv('aes-256-cbc', aesKey, iv);
   let decrypted = decipher.update(encryptedData, 'base64', 'utf8');
@@ -242,7 +242,7 @@ export function hash(data: string): string {
  */
 export async function generateMultipleKeyPairs(
   keyIds: string[],
-  keySize: number = 2048
+  keySize: number = 2048,
 ): Promise<{ [keyId: string]: KeyPair }> {
   const keyPairs: { [keyId: string]: KeyPair } = {};
 

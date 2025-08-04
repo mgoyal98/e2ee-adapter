@@ -45,7 +45,7 @@ export class E2EEInterceptor implements NestInterceptor {
   private createError(
     message: string,
     code: string,
-    statusCode: number = 400
+    statusCode: number = 400,
   ): E2EEError {
     return createE2EEError(message, code, statusCode);
   }
@@ -56,7 +56,11 @@ export class E2EEInterceptor implements NestInterceptor {
 
     try {
       // Process request and check if it should be handled
-      const processingResult = processRequest(request, this.config, this.createError.bind(this));
+      const processingResult = processRequest(
+        request,
+        this.config,
+        this.createError.bind(this),
+      );
       if (processingResult.shouldContinue) {
         return next.handle();
       }
@@ -66,7 +70,7 @@ export class E2EEInterceptor implements NestInterceptor {
         request,
         this.config,
         this.createError.bind(this),
-        this.options.onDecrypt
+        this.options.onDecrypt,
       );
 
       // Setup encryption context for response-only encryption if needed
@@ -77,7 +81,7 @@ export class E2EEInterceptor implements NestInterceptor {
         e2eeContext = await setupResponseEncryptionContext(
           request,
           this.config,
-          this.createError.bind(this)
+          this.createError.bind(this),
         );
       }
 
@@ -101,7 +105,7 @@ export class E2EEInterceptor implements NestInterceptor {
                 e2eeContext,
                 this.createError.bind(this),
                 this.options.onEncrypt,
-                response
+                response,
               );
 
               // Return encrypted data
@@ -112,7 +116,7 @@ export class E2EEInterceptor implements NestInterceptor {
               }
               throw error;
             }
-          })
+          }),
         );
       }
 
@@ -129,8 +133,8 @@ export class E2EEInterceptor implements NestInterceptor {
           () =>
             new HttpException(
               e2eeError.message,
-              e2eeError.statusCode || HttpStatus.BAD_REQUEST
-            )
+              e2eeError.statusCode || HttpStatus.BAD_REQUEST,
+            ),
         );
       }
 
