@@ -6,6 +6,7 @@ export {
   decrypt,
   encryptAES,
   decryptAES,
+  decryptAESKey,
   generateNonce,
   hash,
 } from './utils/crypto';
@@ -26,16 +27,10 @@ export type {
 } from './types';
 
 // Interceptors
-export {
-  E2EEInterceptor,
-} from './interceptors/e2ee.interceptor';
+export { E2EEInterceptor } from './interceptors/e2ee.interceptor';
 
 // Middleware
-export {
-  createE2EEMiddleware,
-} from './middleware/e2ee';
+export { createE2EEMiddleware } from './middleware/e2ee';
 
 // Client
-export {
-  E2EEClient,
-} from './client/e2ee-client';
+export { E2EEClient } from './client/e2ee-client';
