@@ -1,3 +1,10 @@
+## [1.0.3](https://github.com/mgoyal98/e2ee-adapter/compare/v1.0.2...v1.0.3) (2025-08-04)
+
+### Bug Fixes
+
+* created common functions to use in both middleware and interceptor ([e4970ee](https://github.com/mgoyal98/e2ee-adapter/commit/e4970ee546078da24de84edb1f10ebaad74a7294))
+* nestjs interceptor logic ([75055b2](https://github.com/mgoyal98/e2ee-adapter/commit/75055b22d4f556a6e2a4efd13753d2739e651f8e))
+
 ## [1.0.2](https://github.com/mgoyal98/e2ee-adapter/compare/v1.0.1...v1.0.2) (2025-08-03)
 
 ### Bug Fixes
