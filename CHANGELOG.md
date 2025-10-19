@@ -1,3 +1,9 @@
+## [1.2.3](https://github.com/mgoyal98/e2ee-adapter/compare/v1.2.2...v1.2.3) (2025-10-19)
+
+### Bug Fixes
+
+* express 5 support ([5d3e5ae](https://github.com/mgoyal98/e2ee-adapter/commit/5d3e5ae78402b7adbd538dec49adf3229b056d5e))
+
 ## [1.2.2](https://github.com/mgoyal98/e2ee-adapter/compare/v1.2.1...v1.2.2) (2025-08-04)
 
 ### Bug Fixes
